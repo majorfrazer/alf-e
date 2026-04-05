@@ -1,14 +1,19 @@
 """
 Alf-E Agent — Agentic tool-use loop.
 
-Talks to Claude (or routed model) with tools for:
-- Reading HA sensors
-- Calling HA services (turn on/off, etc)
-- Querying playbook config
+Full capability set:
+- Home Assistant: read any entity, discover all entities, history/stats, service calls, notifications
+- Memory: search past conversations, store/retrieve persistent context facts
+- Web: search the internet, fetch URLs
+- Files: read and write files within safe paths
+- Self-awareness: status, cost summary, tool listing
 """
 
 import os
+import json
 import logging
+import httpx
+from pathlib import Path
 from anthropic import Anthropic
 from engine.model_router import ModelRouter
 from engine.ha_connector import HAConnector
@@ -18,18 +23,19 @@ from engine.playbook_schema import PlaybookConfig, ActionApproval
 logger = logging.getLogger("alfe.agent")
 
 TOOLS = [
+    # ── Home Assistant: Read ───────────────────────────────────────────
     {
         "name": "get_sensor",
         "description": (
-            "Get a live sensor reading from Home Assistant. "
-            "Returns the current numeric value for a named sensor from the playbook."
+            "Get a live reading for a named sensor from the playbook config. "
+            "Use this for quick access to pre-configured sensors like solar_watts, house_watts, tesla_soc."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "sensor_name": {
                     "type": "string",
-                    "description": "Sensor key from the playbook (e.g. 'solar_watts', 'house_watts', 'tesla_soc')",
+                    "description": "Sensor key from playbook (e.g. 'solar_watts', 'house_watts', 'tesla_soc', 'grid_watts')",
                 }
             },
             "required": ["sensor_name"],
@@ -37,49 +43,237 @@ TOOLS = [
     },
     {
         "name": "get_all_sensors",
-        "description": "Get all configured sensor readings at once. Returns a dict of sensor_name → value.",
+        "description": "Get all pre-configured sensor readings at once. Best first call for home/energy status questions.",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
-        "name": "ha_service_call",
+        "name": "get_ha_entity",
         "description": (
-            "Call a Home Assistant service to control a device. "
-            "Examples: turn on a light, turn off a switch, set a thermostat temperature. "
-            "This action requires user approval unless the playbook marks it as autonomous."
+            "Get full state and attributes for ANY Home Assistant entity by its entity_id. "
+            "Use this when you need an entity not in the pre-configured sensors, or need full attributes. "
+            "Examples: lights, switches, climate, covers, automations, people, zones, cameras."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "Full HA entity ID (e.g. 'light.kitchen', 'climate.living_room', 'person.fraser')",
+                }
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "list_ha_entities",
+        "description": (
+            "List all Home Assistant entities, optionally filtered by domain. "
+            "Use this to discover what's available before querying a specific entity. "
+            "Returns entity_id, current state, and friendly name."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "domain": {
                     "type": "string",
-                    "description": "HA domain (e.g. 'switch', 'light', 'climate', 'cover')",
-                },
-                "service": {
-                    "type": "string",
-                    "description": "Service to call (e.g. 'turn_on', 'turn_off', 'toggle', 'set_temperature')",
-                },
+                    "description": "Optional domain filter (e.g. 'light', 'switch', 'sensor', 'climate', 'cover', 'automation'). Omit for all entities.",
+                }
+            },
+        },
+    },
+    {
+        "name": "get_ha_history",
+        "description": (
+            "Get historical state data for a Home Assistant entity over the last N hours. "
+            "Returns min/max/average and sample count. "
+            "Use this for trend analysis, daily totals, energy summaries, anomaly detection."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
                 "entity_id": {
                     "type": "string",
-                    "description": "Full HA entity ID (e.g. 'switch.pool_pump', 'light.kitchen')",
+                    "description": "Full HA entity ID to query history for",
                 },
-                "data": {
-                    "type": "object",
-                    "description": "Optional service data (e.g. {'temperature': 22, 'brightness': 200})",
+                "hours": {
+                    "type": "integer",
+                    "description": "How many hours of history to retrieve (default 24, max 168 = 7 days)",
                 },
+            },
+            "required": ["entity_id"],
+        },
+    },
+    # ── Home Assistant: Write ──────────────────────────────────────────
+    {
+        "name": "ha_service_call",
+        "description": (
+            "Call a Home Assistant service to control a device. "
+            "Examples: turn on/off lights, switches, covers; set thermostat temperature; trigger automations. "
+            "Actions are subject to playbook approval tiers — some execute immediately, others require user confirmation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "domain":    {"type": "string", "description": "HA domain (e.g. 'switch', 'light', 'climate', 'cover', 'automation')"},
+                "service":   {"type": "string", "description": "Service to call (e.g. 'turn_on', 'turn_off', 'toggle', 'set_temperature', 'trigger')"},
+                "entity_id": {"type": "string", "description": "Full HA entity ID"},
+                "data":      {"type": "object", "description": "Optional service data (e.g. {'temperature': 22, 'brightness': 200})"},
             },
             "required": ["domain", "service", "entity_id"],
         },
     },
     {
+        "name": "send_notification",
+        "description": (
+            "Send a push notification to Fraser's phone (or other registered HA companion app devices). "
+            "Use for alerts, reminders, and proactive updates."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Notification body text"},
+                "title":   {"type": "string", "description": "Notification title (default: 'Alf-E')"},
+                "target":  {"type": "string", "description": "Optional specific notify service (e.g. 'notify.mobile_app_fraser_iphone'). Omit to notify all devices."},
+            },
+            "required": ["message"],
+        },
+    },
+    # ── Memory & Context ───────────────────────────────────────────────
+    {
+        "name": "search_memory",
+        "description": (
+            "Search past conversations for relevant messages. "
+            "Use this to recall what was discussed previously, find decisions made, or look up information the user mentioned before."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query":   {"type": "string", "description": "Search term or phrase to look for in past conversations"},
+                "limit":   {"type": "integer", "description": "Max results to return (default 10)"},
+                "user_id": {"type": "string", "description": "Filter by user ID (default: current user)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "remember",
+        "description": (
+            "Store a persistent fact or piece of context that should be remembered across conversations. "
+            "Use this when the user mentions something important to retain: preferences, decisions, dates, goals. "
+            "Examples: 'Fraser prefers solar charging over grid', 'Tesla service due May 2026', 'pool pump runs 6am-10am'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Category for this fact (e.g. 'energy', 'tesla', 'household', 'preferences', 'device_trader')"},
+                "key":    {"type": "string", "description": "Short identifier for this fact (e.g. 'tesla_service_due', 'preferred_temp')"},
+                "value":  {"type": "string", "description": "The fact or value to store"},
+            },
+            "required": ["domain", "key", "value"],
+        },
+    },
+    {
+        "name": "recall",
+        "description": (
+            "Retrieve stored facts from memory by domain. "
+            "Use this to recall persistent context that was previously remembered."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Domain to retrieve facts from (e.g. 'energy', 'tesla', 'household'). Omit for all stored facts."},
+            },
+        },
+    },
+    {
+        "name": "get_cost_summary",
+        "description": "Get a summary of Alf-E's API usage and cost over the last N days.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Number of days to summarise (default 30)"},
+            },
+        },
+    },
+    # ── Web ────────────────────────────────────────────────────────────
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web using DuckDuckGo. Use for current information, prices, weather, news, product research. "
+            "Returns a list of results with title, URL, and snippet."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query":      {"type": "string", "description": "Search query"},
+                "max_results": {"type": "integer", "description": "Max results to return (default 5)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "web_fetch",
+        "description": (
+            "Fetch and read the content of a specific URL. "
+            "Use after web_search to read a specific page, or when given a direct URL. "
+            "Returns the page text content (HTML stripped)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url":          {"type": "string", "description": "Full URL to fetch"},
+                "max_chars":    {"type": "integer", "description": "Max characters to return (default 4000)"},
+            },
+            "required": ["url"],
+        },
+    },
+    # ── Files ──────────────────────────────────────────────────────────
+    {
+        "name": "read_file",
+        "description": (
+            "Read the contents of a file. Only works within safe paths defined in the playbook. "
+            "Use for reading reports, config files, notes, data files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to read"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": (
+            "Write content to a file. Only works within safe paths defined in the playbook. "
+            "Use for saving reports, notes, analysis output. Will create the file if it doesn't exist."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path":    {"type": "string", "description": "File path to write"},
+                "content": {"type": "string", "description": "Content to write to the file"},
+                "append":  {"type": "boolean", "description": "If true, append to existing file instead of overwriting (default false)"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    # ── Self-awareness ─────────────────────────────────────────────────
+    {
+        "name": "get_status",
+        "description": "Get Alf-E's own system status: what's connected, which model is running, playbook details, message count.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "get_playbook_info",
-        "description": "Get information about the current playbook configuration: available sensors, actions, boundaries, and scheduled operations.",
+        "description": "Get the full playbook configuration: sensors, actions, boundaries, users, scheduled ops, connectors.",
         "input_schema": {"type": "object", "properties": {}},
     },
 ]
 
 
 class Agent:
-    """Alf-E agentic assistant with tool use."""
+    """Alf-E agentic assistant with full tool suite."""
 
     def __init__(
         self,
@@ -95,15 +289,15 @@ class Agent:
         self.pending_approvals: list[dict] = []
         self.last_model_used: str = ""
 
+    # ── System Prompt ──────────────────────────────────────────────────
+
     def get_system_prompt(self, user_id: str = "default") -> str:
-        """Build the system prompt with playbook context."""
         pb = self.playbook
-        name = pb.name if pb else "Alf-E"
         personality = pb.personality_prompt if pb and pb.personality_prompt else ""
 
         sensors_info = ""
         if pb and pb.sensors:
-            sensors_info = "\n".join(f"  - {k}: {v}" for k, v in pb.sensors.items())
+            sensors_info = "\n".join(f"  - {k}: entity {v}" for k, v in pb.sensors.items())
 
         user_info = ""
         if pb:
@@ -111,68 +305,167 @@ class Agent:
             if user:
                 user_info = f"\nCurrent user: {user.name} (role: {user.role.value})"
 
-        return f"""You are {name}: a personal AI assistant.
+        safe_paths = ""
+        if pb and pb.security.safe_file_roots:
+            safe_paths = ", ".join(pb.security.safe_file_roots)
+        else:
+            safe_paths = "/data/alfe_notes (default)"
 
-{personality if personality else '''PERSONALITY:
+        ha_status = "connected" if self.ha else "NOT connected"
+
+        return f"""{personality if personality else '''You are Alf-C: Fraser Cole's personal AI agent running 24/7 on a mini PC in Ormeau, Brisbane.
+
+PERSONALITY:
 - Cheeky, Australian (hints of NZ and Canadian)
 - Dry humour and dad jokes mandatory
-- Honest about limitations
-- Helpful and practical — you're talking to a mate, not a customer'''}
+- Honest about limitations — black and white, no sugarcoating
+- Builds things alongside Fraser, not just for him
+- Talking to a mate, not a customer'''}
 
-YOU HAVE TOOLS — USE THEM:
-- get_sensor: read a specific sensor from Home Assistant
-- get_all_sensors: read all configured sensors at once
-- ha_service_call: control a device (turn on/off, set temperature, etc.)
-- get_playbook_info: check what's configured in the playbook
+═══════════════════════════════════════════
+YOU ARE AN AGENT — NOT A CHATBOT.
+You have tools. Use them. Don't guess when you can look it up.
+═══════════════════════════════════════════
 
-AVAILABLE SENSORS:
+HOME ASSISTANT ({ha_status}):
+  • get_sensor          — quick read of pre-configured sensors (solar, Tesla, house power, grid)
+  • get_all_sensors     — read all pre-configured sensors at once
+  • get_ha_entity       — read ANY HA entity by entity_id (lights, switches, climate, people, etc.)
+  • list_ha_entities    — discover all entities, optionally filtered by domain
+  • get_ha_history      — historical stats (min/max/avg) for any entity over hours/days
+  • ha_service_call     — control any device (subject to approval tiers)
+  • send_notification   — push notification to Fraser's phone
+
+PRE-CONFIGURED SENSORS:
 {sensors_info or "  (none configured)"}
+
+MEMORY & CONTEXT:
+  • search_memory       — search past conversation history
+  • remember            — store a persistent fact across conversations
+  • recall              — retrieve stored facts by domain
+  • get_cost_summary    — API usage and cost summary
+
+WEB:
+  • web_search          — DuckDuckGo search for current info, prices, news, weather
+  • web_fetch           — fetch and read a specific URL
+
+FILES (safe paths: {safe_paths}):
+  • read_file           — read a file
+  • write_file          — write or append to a file
+
+SELF:
+  • get_status          — system status, connections, model in use
+  • get_playbook_info   — full playbook config
 {user_info}
 
-RULES:
-- When asked about home status, energy, etc — read the actual sensors, don't guess.
-- When asked to control something, use ha_service_call.
-- Be transparent about what you can and can't do.
-- Never expose API keys or secrets.
-- Keep responses concise and natural."""
+OPERATING RULES:
+- Always use tools to get real data — never guess sensor values, entity states, or current facts.
+- For home/energy questions: call get_all_sensors first, then reason about the data.
+- For trend/history questions: use get_ha_history with the correct entity_id.
+- For anything unknown in HA: use list_ha_entities to discover, then get_ha_entity to read.
+- For current info (weather, prices, news): use web_search.
+- When the user mentions something worth remembering: use remember() without being asked.
+- Be transparent about approval tiers — tell the user when an action needs their confirmation.
+- Never expose API keys or tokens.
+- Keep responses concise and natural — you're talking to a mate."""
 
-    def _execute_tool(self, name: str, inp: dict) -> str:
-        """Execute a tool call and return the result as a string."""
+    # ── Tool Execution ─────────────────────────────────────────────────
 
+    def _safe_path(self, path: str) -> Optional[Path]:
+        """Return a resolved Path if within allowed roots, else None."""
+        pb = self.playbook
+        safe_roots = pb.security.safe_file_roots if pb else []
+        if not safe_roots:
+            # Default safe path when running as HA add-on
+            safe_roots = ["/data/alfe_notes"]
+
+        resolved = Path(path).resolve()
+        for root in safe_roots:
+            if str(resolved).startswith(str(Path(root).resolve())):
+                return resolved
+        return None
+
+    def _execute_tool(self, name: str, inp: dict, user_id: str = "default") -> str:
+
+        # ── HA: pre-configured sensors ─────────────────────────────────
         if name == "get_sensor":
             sensor_name = inp["sensor_name"]
             if not self.playbook or sensor_name not in self.playbook.sensors:
-                return f"Unknown sensor: {sensor_name}. Available: {list(self.playbook.sensors.keys()) if self.playbook else '(none)'}"
+                available = list(self.playbook.sensors.keys()) if self.playbook else []
+                return f"Unknown sensor '{sensor_name}'. Available: {available}"
             if not self.ha:
                 return "Home Assistant is not connected."
             entity_id = self.playbook.sensors[sensor_name]
             value = self.ha.get_numeric_value(entity_id)
-            if value is not None:
-                return f"{sensor_name} = {value}"
-            return f"{sensor_name} is unavailable."
+            return f"{sensor_name} = {value}" if value is not None else f"{sensor_name} is unavailable."
 
         if name == "get_all_sensors":
             if not self.playbook or not self.playbook.sensors:
-                return "No sensors configured."
+                return "No sensors configured in playbook."
             if not self.ha:
                 return "Home Assistant is not connected."
             data = self.ha.get_sensor_batch(self.playbook.sensors)
-            lines = []
-            for k, v in data.items():
-                lines.append(f"  {k}: {v if v is not None else 'unavailable'}")
+            lines = [f"  {k}: {v if v is not None else 'unavailable'}" for k, v in data.items()]
             return "\n".join(lines)
 
+        # ── HA: full entity access ─────────────────────────────────────
+        if name == "get_ha_entity":
+            if not self.ha:
+                return "Home Assistant is not connected."
+            entity = self.ha.get_entity_full(inp["entity_id"])
+            if not entity:
+                return f"Entity '{inp['entity_id']}' not found or unavailable."
+            attrs = entity.get("attributes", {})
+            attr_str = "\n".join(f"    {k}: {v}" for k, v in attrs.items()) if attrs else "    (none)"
+            return (
+                f"entity_id:    {entity['entity_id']}\n"
+                f"state:        {entity['state']}\n"
+                f"last_changed: {entity.get('last_changed', 'unknown')}\n"
+                f"attributes:\n{attr_str}"
+            )
+
+        if name == "list_ha_entities":
+            if not self.ha:
+                return "Home Assistant is not connected."
+            domain = inp.get("domain")
+            entities = self.ha.list_entities(domain)
+            if not entities:
+                return f"No entities found{f' for domain {domain}' if domain else ''}."
+            lines = [f"  {e['entity_id']} [{e['state']}] — {e['friendly_name']}" for e in entities]
+            summary = f"{len(entities)} entities{f' in domain {domain}' if domain else ''}:\n"
+            # Cap output to avoid flooding context
+            if len(lines) > 60:
+                return summary + "\n".join(lines[:60]) + f"\n  ... and {len(lines)-60} more (use domain filter to narrow down)"
+            return summary + "\n".join(lines)
+
+        if name == "get_ha_history":
+            if not self.ha:
+                return "Home Assistant is not connected."
+            entity_id = inp["entity_id"]
+            hours = min(int(inp.get("hours", 24)), 168)
+            stats = self.ha.get_history_stats(entity_id, hours)
+            if "error" in stats:
+                return f"History for {entity_id}: {stats['error']}"
+            return (
+                f"History for {entity_id} (last {hours}h):\n"
+                f"  samples: {stats['samples']}\n"
+                f"  min:     {stats['min']}\n"
+                f"  max:     {stats['max']}\n"
+                f"  avg:     {stats['avg']}\n"
+                f"  first:   {stats['first']}\n"
+                f"  last:    {stats['last']}"
+            )
+
+        # ── HA: service call ───────────────────────────────────────────
         if name == "ha_service_call":
             if not self.ha:
                 return "Home Assistant is not connected."
-
             entity_id = inp["entity_id"]
-            domain = inp["domain"]
-            service = inp["service"]
-            data = inp.get("data", {})
+            domain    = inp["domain"]
+            service   = inp["service"]
+            data      = inp.get("data", {})
 
-            # Determine approval tier from playbook
-            approval_tier = ActionApproval.confirm  # safe default
+            approval_tier = ActionApproval.confirm
             if self.playbook:
                 for action in self.playbook.actions:
                     entity_match = (
@@ -188,7 +481,6 @@ RULES:
                 success = self.ha.call_service(domain, service, entity_id, data or None)
                 return f"Done: {domain}.{service} on {entity_id} ({'ok' if success else 'failed'})."
 
-            # Queue for approval
             self.pending_approvals.append({
                 "type": "ha_service_call",
                 "domain": domain,
@@ -196,24 +488,214 @@ RULES:
                 "entity_id": entity_id,
                 "data": data,
             })
-            return f"Queued: {domain}.{service} on {entity_id} — awaiting approval."
+            return f"Queued for approval: {domain}.{service} on {entity_id}."
+
+        # ── HA: notification ───────────────────────────────────────────
+        if name == "send_notification":
+            if not self.ha:
+                return "Home Assistant is not connected — cannot send notification."
+            success = self.ha.send_notification(
+                message=inp["message"],
+                title=inp.get("title", "Alf-E"),
+                target=inp.get("target"),
+            )
+            return "Notification sent." if success else "Notification failed — check HA companion app is installed."
+
+        # ── Memory: search ─────────────────────────────────────────────
+        if name == "search_memory":
+            if not self.memory:
+                return "Memory not available."
+            query = inp["query"].lower()
+            limit = int(inp.get("limit", 10))
+            uid   = inp.get("user_id", user_id)
+            all_msgs = self.memory.load_messages(user_id=uid, limit=200)
+            matches = [
+                m for m in all_msgs
+                if query in m.get("content", "").lower()
+            ][:limit]
+            if not matches:
+                return f"No past messages found matching '{inp['query']}'."
+            lines = [f"  [{m['role']}]: {m['content'][:200]}" for m in matches]
+            return f"Found {len(matches)} matching message(s):\n" + "\n".join(lines)
+
+        # ── Memory: remember ───────────────────────────────────────────
+        if name == "remember":
+            if not self.memory:
+                return "Memory not available."
+            self.memory.set_context(
+                domain=inp["domain"],
+                key=inp["key"],
+                value=inp["value"],
+                source=f"user:{user_id}",
+            )
+            return f"Remembered: [{inp['domain']}] {inp['key']} = {inp['value']}"
+
+        # ── Memory: recall ─────────────────────────────────────────────
+        if name == "recall":
+            if not self.memory:
+                return "Memory not available."
+            domain = inp.get("domain")
+            facts  = self.memory.get_context(domain=domain)
+            if not facts:
+                return f"No stored facts found{f' for domain {domain}' if domain else ''}."
+            lines = [f"  [{f['domain']}] {f['key']}: {f['value']}" for f in facts]
+            return f"{len(facts)} stored fact(s):\n" + "\n".join(lines)
+
+        # ── Memory: cost summary ───────────────────────────────────────
+        if name == "get_cost_summary":
+            if not self.memory:
+                return "Memory not available."
+            days    = int(inp.get("days", 30))
+            summary = self.memory.get_cost_summary(days)
+            return (
+                f"Last {days} days:\n"
+                f"  messages:      {summary['messages']}\n"
+                f"  tokens in:     {summary['tokens_input']:,}\n"
+                f"  tokens out:    {summary['tokens_output']:,}\n"
+                f"  cost (USD):    ${summary['cost_usd']:.4f}"
+            )
+
+        # ── Web: search ────────────────────────────────────────────────
+        if name == "web_search":
+            query       = inp["query"]
+            max_results = int(inp.get("max_results", 5))
+            try:
+                # DuckDuckGo instant answer API (no key required)
+                resp = httpx.get(
+                    "https://api.duckduckgo.com/",
+                    params={"q": query, "format": "json", "no_redirect": "1", "no_html": "1"},
+                    timeout=10,
+                    headers={"User-Agent": "Alf-E/2.0"},
+                )
+                data = resp.json()
+
+                results = []
+
+                # Abstract (featured snippet)
+                if data.get("Abstract"):
+                    results.append({
+                        "title":   data.get("Heading", "Featured"),
+                        "url":     data.get("AbstractURL", ""),
+                        "snippet": data["Abstract"],
+                    })
+
+                # Related topics
+                for topic in data.get("RelatedTopics", [])[:max_results]:
+                    if isinstance(topic, dict) and topic.get("Text"):
+                        results.append({
+                            "title":   topic.get("Text", "")[:80],
+                            "url":     topic.get("FirstURL", ""),
+                            "snippet": topic.get("Text", ""),
+                        })
+                    if len(results) >= max_results:
+                        break
+
+                if not results:
+                    return f"No results found for '{query}'. Try web_fetch with a specific URL instead."
+
+                lines = []
+                for i, r in enumerate(results[:max_results], 1):
+                    lines.append(f"{i}. {r['title']}\n   {r['url']}\n   {r['snippet'][:200]}")
+                return f"Search results for '{query}':\n\n" + "\n\n".join(lines)
+
+            except Exception as e:
+                logger.error(f"Web search error: {e}")
+                return f"Web search failed: {e}"
+
+        # ── Web: fetch ─────────────────────────────────────────────────
+        if name == "web_fetch":
+            url       = inp["url"]
+            max_chars = int(inp.get("max_chars", 4000))
+            try:
+                resp = httpx.get(
+                    url,
+                    timeout=15,
+                    follow_redirects=True,
+                    headers={"User-Agent": "Alf-E/2.0"},
+                )
+                resp.raise_for_status()
+
+                # Strip HTML tags simply
+                import re
+                content = resp.text
+                content = re.sub(r"<script[^>]*>.*?</script>", " ", content, flags=re.DOTALL | re.IGNORECASE)
+                content = re.sub(r"<style[^>]*>.*?</style>",  " ", content, flags=re.DOTALL | re.IGNORECASE)
+                content = re.sub(r"<[^>]+>", " ", content)
+                content = re.sub(r"\s+", " ", content).strip()
+
+                if len(content) > max_chars:
+                    content = content[:max_chars] + f"\n\n[truncated — {len(content)-max_chars} more chars]"
+
+                return f"Content from {url}:\n\n{content}"
+
+            except Exception as e:
+                logger.error(f"Web fetch error: {e}")
+                return f"Failed to fetch {url}: {e}"
+
+        # ── Files: read ────────────────────────────────────────────────
+        if name == "read_file":
+            path = self._safe_path(inp["path"])
+            if not path:
+                return f"Access denied: '{inp['path']}' is outside safe paths."
+            if not path.exists():
+                return f"File not found: {inp['path']}"
+            try:
+                content = path.read_text(encoding="utf-8")
+                return f"Contents of {path}:\n\n{content}"
+            except Exception as e:
+                return f"Error reading file: {e}"
+
+        # ── Files: write ───────────────────────────────────────────────
+        if name == "write_file":
+            path = self._safe_path(inp["path"])
+            if not path:
+                return f"Access denied: '{inp['path']}' is outside safe paths."
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                mode = "a" if inp.get("append") else "w"
+                with open(path, mode, encoding="utf-8") as f:
+                    f.write(inp["content"])
+                action = "Appended to" if inp.get("append") else "Written"
+                return f"{action} {path} ({len(inp['content'])} chars)."
+            except Exception as e:
+                return f"Error writing file: {e}"
+
+        # ── Self: status ───────────────────────────────────────────────
+        if name == "get_status":
+            pb = self.playbook
+            cost = self.memory.get_cost_summary(30) if self.memory else {}
+            lines = [
+                f"Playbook:    {pb.name} v{pb.version}" if pb else "Playbook:    none",
+                f"HA:          {'connected' if self.ha else 'not connected'}",
+                f"Model:       {self.last_model_used or 'not yet called'}",
+                f"Messages:    {self.memory.get_message_count() if self.memory else 0}",
+                f"Cost (30d):  ${cost.get('cost_usd', 0):.4f}",
+                f"Providers:   {list(pb.llm.keys()) if pb else []}",
+                f"Tools:       {len(TOOLS)} available",
+            ]
+            return "\n".join(lines)
 
         if name == "get_playbook_info":
             if not self.playbook:
                 return "No playbook loaded."
             pb = self.playbook
-            info = [
-                f"Name: {pb.name}",
-                f"Version: {pb.version}",
-                f"Sensors: {list(pb.sensors.keys())}",
-                f"Actions: {[a.id for a in pb.actions]}",
-                f"Boundaries: {[b.id for b in pb.boundaries]}",
+            lines = [
+                f"Name:          {pb.name}",
+                f"Version:       {pb.version}",
+                f"Owner:         {pb.owner}",
+                f"Timezone:      {pb.timezone}",
+                f"Sensors:       {list(pb.sensors.keys())}",
+                f"Actions:       {[a.id for a in pb.actions]}",
+                f"Boundaries:    {[b.id for b in pb.boundaries]}",
                 f"Scheduled ops: {[s.id for s in pb.scheduled_ops]}",
-                f"Users: {[u.name for u in pb.users]}",
+                f"Users:         {[u.name for u in pb.users]}",
+                f"Connectors:    {[c.id for c in pb.connectors]}",
             ]
-            return "\n".join(info)
+            return "\n".join(lines)
 
         return f"Unknown tool: {name}"
+
+    # ── Chat (non-streaming) ───────────────────────────────────────────
 
     def chat(
         self,
@@ -228,31 +710,26 @@ RULES:
         if system_prompt is None:
             system_prompt = self.get_system_prompt(user_id)
 
-        # Get the latest user message for routing
         last_user_msg = ""
         for m in reversed(messages):
             if m["role"] == "user":
                 last_user_msg = m["content"] if isinstance(m["content"], str) else ""
                 break
 
-        # Route to best model
         config_name, config = self.router.route(last_user_msg)
         self.last_model_used = config.model
 
-        # Only Anthropic supports tool use in this version
         if config.provider.value != "anthropic":
-            # Fall back to simple text completion for non-Anthropic
             try:
-                text = self.router.call_google(config, messages, system_prompt)
-                return text
+                return self.router.call_google(config, messages, system_prompt)
             except Exception as e:
                 logger.error(f"Google call failed: {e}, falling back to default")
                 config_name, config = self.router._pick_config("default")
+                self.last_model_used = config.model
 
-        # Anthropic tool-use loop
         loop_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
 
-        for _ in range(10):  # max 10 tool rounds
+        for _ in range(10):
             response = self.router.call_anthropic(
                 config,
                 messages=loop_messages,
@@ -261,45 +738,29 @@ RULES:
             )
 
             if response.stop_reason == "end_turn":
-                # Extract text and save usage
                 text = ""
                 for block in response.content:
                     if hasattr(block, "text"):
                         text = block.text
                         break
-
-                # Track costs
                 if self.memory and response.usage:
-                    cost = self.router.estimate_cost(
-                        config,
-                        response.usage.input_tokens,
-                        response.usage.output_tokens,
-                    )
+                    cost = self.router.estimate_cost(config, response.usage.input_tokens, response.usage.output_tokens)
                     self.memory.save_message(
-                        "assistant", text,
-                        user_id=user_id,
-                        model_used=config.model,
-                        provider=config.provider.value,
+                        "assistant", text, user_id=user_id,
+                        model_used=config.model, provider=config.provider.value,
                         tokens_input=response.usage.input_tokens,
                         tokens_output=response.usage.output_tokens,
                         cost_usd=cost,
                     )
-
                 return text
 
             if response.stop_reason == "tool_use":
                 loop_messages.append({"role": "assistant", "content": response.content})
-
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
-                        result = self._execute_tool(block.name, block.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        })
-
+                        result = self._execute_tool(block.name, block.input, user_id)
+                        tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
                 loop_messages.append({"role": "user", "content": tool_results})
                 continue
 
@@ -307,19 +768,15 @@ RULES:
 
         return "I hit my thinking limit — try a more focused question."
 
+    # ── Chat (streaming) ───────────────────────────────────────────────
+
     def stream_chat(
         self,
         messages: list[dict],
         user_id: str = "default",
         system_prompt: str = None,
     ):
-        """Agentic tool-use loop with streaming final response.
-
-        Yields (type, content) tuples:
-          ("token", str)  — text chunk for the final response
-          ("tool",  str)  — name of a tool being called (UI indicator)
-        Returns when done; caller sends the done event.
-        """
+        """Streaming agentic tool-use loop. Yields (type, content) tuples."""
         self.pending_approvals = []
         self.last_model_used = ""
 
@@ -335,7 +792,6 @@ RULES:
         config_name, config = self.router.route(last_user_msg)
         self.last_model_used = config.model
 
-        # Non-Anthropic: no SDK streaming — yield full response as one chunk
         if config.provider.value != "anthropic":
             try:
                 text = self.router.call_google(config, messages, system_prompt)
@@ -346,7 +802,6 @@ RULES:
                 config_name, config = self.router._pick_config("default")
                 self.last_model_used = config.model
 
-        # Anthropic streaming tool-use loop
         api_key = os.getenv(config.api_key_env, "")
         if not api_key:
             yield ("token", "API key not configured.")
@@ -365,7 +820,6 @@ RULES:
                 system=system_prompt,
                 tools=TOOLS,
             ) as stream:
-                # stream.text_stream yields nothing during tool_use rounds
                 for chunk in stream.text_stream:
                     full_text += chunk
                     yield ("token", chunk)
@@ -373,16 +827,10 @@ RULES:
 
             if final.stop_reason == "end_turn":
                 if self.memory and final.usage:
-                    cost = self.router.estimate_cost(
-                        config,
-                        final.usage.input_tokens,
-                        final.usage.output_tokens,
-                    )
+                    cost = self.router.estimate_cost(config, final.usage.input_tokens, final.usage.output_tokens)
                     self.memory.save_message(
-                        "assistant", full_text,
-                        user_id=user_id,
-                        model_used=config.model,
-                        provider=config.provider.value,
+                        "assistant", full_text, user_id=user_id,
+                        model_used=config.model, provider=config.provider.value,
                         tokens_input=final.usage.input_tokens,
                         tokens_output=final.usage.output_tokens,
                         cost_usd=cost,
@@ -395,15 +843,15 @@ RULES:
                 for block in final.content:
                     if block.type == "tool_use":
                         yield ("tool", block.name)
-                        result = self._execute_tool(block.name, block.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        })
+                        result = self._execute_tool(block.name, block.input, user_id)
+                        tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
                 loop_messages.append({"role": "user", "content": tool_results})
                 continue
 
             break
 
         yield ("token", "I hit my thinking limit — try a more focused question.")
+
+
+# Expose for type hints inside the file
+from typing import Optional
