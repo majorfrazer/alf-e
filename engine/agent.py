@@ -15,6 +15,7 @@ import json
 import logging
 import httpx
 from pathlib import Path
+from typing import Optional
 from anthropic import Anthropic
 from engine.model_router import ModelRouter
 from engine.memory import Memory
@@ -1090,5 +1091,5 @@ class {class_name}(BaseConnector):
         yield ("token", "I hit my thinking limit — try a more focused question.")
 
 
-# Expose for type hints inside the file
-from typing import Optional
+
+
