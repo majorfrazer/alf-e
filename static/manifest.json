@@ -1,0 +1,33 @@
+{
+    "name": "Alf-E — Personal AI Agent",
+    "short_name": "Alf-E",
+    "description": "Your self-hosted personal AI agent for home automation and more.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0a0a0a",
+    "theme_color": "#0066CC",
+    "orientation": "portrait-primary",
+    "lang": "en-AU",
+    "icons": [
+        {
+            "src": "/static/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "/static/icon-maskable.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
+        }
+    ],
+    "categories": ["productivity", "utilities"],
+    "shortcuts": [
+        {
+            "name": "New Chat",
+            "url": "/",
+            "description": "Start a new conversation with Alf-E"
+        }
+    ]
+}

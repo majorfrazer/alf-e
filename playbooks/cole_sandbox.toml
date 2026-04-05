@@ -1,0 +1,141 @@
+[metadata]
+name = "Cole Family Sandbox"
+description = "Fraser's household Alf-E instance — the proving ground"
+version = "2.0"
+owner = "Fraser Cole"
+timezone = "Australia/Brisbane"
+
+personality_prompt = """
+You are Alf-C: Fraser Cole's household AI butler, running on a mini PC in Ormeau, Brisbane.
+
+PERSONALITY:
+- Cheeky, Australian (hints of NZ and Canadian)
+- Dry humour and dad jokes mandatory
+- Honest about limitations — black and white options, not sugarcoating
+- Builds things alongside Fraser, not just for him
+- You're talking to a mate, not a customer
+
+CONTEXT:
+- House has solar panels (ShellyProEM50), Tesla Model 3, smart plugs (TP-Link P110)
+- Brisbane tariff: peak $0.3557/kWh (06:00-00:00), off-peak $0.08/kWh (00:00-06:00), feed-in $0.03/kWh
+- When reasoning about energy, always consider time-of-use and solar availability
+"""
+
+# ── AI Providers ─────────────────────────────────────────────────────────
+
+[llm.default]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 2000
+temperature = 0.7
+cost_per_1k_input = 0.0008
+cost_per_1k_output = 0.004
+capabilities = ["general", "quick"]
+
+[llm.heavy]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 4096
+temperature = 0.5
+cost_per_1k_input = 0.003
+cost_per_1k_output = 0.015
+capabilities = ["reasoning", "analysis", "code"]
+
+[llm.fast]
+provider = "google"
+model = "gemini-2.5-flash"
+api_key_env = "GOOGLE_API_KEY"
+max_tokens = 1000
+temperature = 0.7
+cost_per_1k_input = 0.0001
+cost_per_1k_output = 0.0004
+capabilities = ["quick", "status"]
+
+# ── Home Assistant ───────────────────────────────────────────────────────
+
+[home_assistant]
+url = "https://xscydqtpjre3sxxwnt6irbmy6tnmnjeo.ui.nabu.casa"
+token_env = "HA_API_TOKEN"
+
+# ── Sensors ──────────────────────────────────────────────────────────────
+
+[sensors]
+solar_watts = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_0_power"
+house_watts = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
+grid_watts = "sensor.shellyem_ec64c9c8d5bf_channel_1_power"
+tesla_soc = "sensor.model_3_battery_level"
+tesla_charging = "sensor.model_3_charging"
+tesla_charger_power = "sensor.shelly1pmg3_ec626003adc0_switch_0_power"
+
+# ── Users ────────────────────────────────────────────────────────────────
+
+[[users]]
+id = "fraser"
+name = "Fraser"
+role = "owner"
+
+[[users]]
+id = "family"
+name = "Family"
+role = "member"
+permitted_domains = ["energy", "weather", "entertainment", "scheduling"]
+
+[[users]]
+id = "guest"
+name = "Guest"
+role = "guest"
+
+# ── Notifications ────────────────────────────────────────────────────────
+
+[[notifications]]
+channel = "pwa_push"
+enabled = true
+urgency_min = "normal"
+
+# ── Security ─────────────────────────────────────────────────────────────
+
+[security]
+require_approval_for_writes = true
+max_actions_per_minute = 30
+max_actions_per_hour = 300
+audit_log_retention_days = 90
+
+# ── Actions ──────────────────────────────────────────────────────────────
+
+[actions.solar_check]
+description = "Check current solar generation"
+verb = "ha_query"
+entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_0_power"
+approval = "autonomous"
+
+[actions.tesla_check]
+description = "Check Tesla battery level"
+verb = "ha_query"
+entity = "sensor.model_3_battery_level"
+approval = "autonomous"
+
+[actions.house_power]
+description = "Check house power consumption"
+verb = "ha_query"
+entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
+approval = "autonomous"
+
+# ── Scheduled Ops ────────────────────────────────────────────────────────
+
+[[scheduled_ops]]
+id = "morning_briefing"
+name = "Morning Briefing"
+description = "Daily summary: energy, weather, calendar, tasks"
+at_time = "06:30"
+notify_on_complete = true
+
+prompt = """
+Generate a morning briefing for the Cole family. Include:
+1. Overnight energy summary (solar earned, grid used, Tesla charge status)
+2. Today's weather forecast for Ormeau/Brisbane
+3. Any calendar events today
+4. Any anomalies or things that need attention
+Keep it concise and friendly. This is a family household, not a boardroom.
+"""

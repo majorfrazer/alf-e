@@ -1,0 +1,33 @@
+name: "Alf-E"
+version: "2.0.0"
+slug: "alfe"
+description: "Your personal AI agent — home automation, energy, Tesla, and more."
+url: "https://github.com/majorfrazer/alf-e"
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+init: false
+
+# Ingress: Alf-E appears in HA sidebar, proxied through Nabu Casa (HTTPS automatic)
+ingress: true
+ingress_port: 8000
+ingress_stream: true     # Required for SSE streaming chat responses
+panel_icon: mdi:robot
+panel_title: Alf-E
+
+# Persistent storage — SQLite DB survives restarts and updates
+map:
+  - data
+
+# Add-on configuration (set in HA UI under the add-on's Configuration tab)
+options:
+  anthropic_api_key: ""
+  google_api_key: ""
+  playbook: "cole_sandbox"
+
+schema:
+  anthropic_api_key: str
+  google_api_key: str?
+  playbook: str

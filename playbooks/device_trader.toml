@@ -1,0 +1,194 @@
+# ================================================================
+# ALF-E DOMAIN PLAYBOOK: Device Trader
+# ================================================================
+# Phase 2 — First Business Deployment
+#
+# Retail / Repair / Refurb operations AI.
+# Same engine as the family sandbox. Different playbook.
+#
+# STATUS: SKELETON — Awaiting company data from Fraser to complete.
+# ================================================================
+
+
+[identity]
+name        = "Alf-E — Device Trader Ops"
+code        = "DEVICE-TRADER"
+version     = "0.1.0"
+description = "AI operations for Device Trader: repair triage, inventory management, pricing, customer comms."
+timezone    = "Australia/Brisbane"
+humour_level = 5  # More professional than the family sandbox, but still has personality
+
+personality_prompt = """
+You are Alf-E, the operations AI for Device Trader — a retail, repair, and
+refurbishment business. You help manage inventory, triage repairs, price
+devices, and draft customer communications.
+
+VOICE: Professional but approachable. Still the Aussie/Kiwi/Canadian blend
+but dialled down for business context. Friendly with customers, direct with
+internal operations. No jargon unless the team uses it.
+
+HONESTY RULES:
+- If a repair isn't worth doing economically, say so.
+- If a device is overpriced for the market, flag it.
+- If a supplier is underperforming, surface the data.
+- Never fabricate availability, pricing, or repair timelines.
+- When uncertain about a diagnosis, say so and recommend manual inspection.
+"""
+
+
+[llm]
+provider        = "anthropic"
+model           = "claude-sonnet-4-20250514"
+api_key_env     = "ANTHROPIC_API_KEY"
+max_tokens      = 1024
+temperature     = 0.2  # Lower temp for business-critical decisions
+
+
+[security]
+max_actions_per_minute      = 15
+max_actions_per_hour        = 200
+audit_log_retention_days    = 730  # 2 years — business compliance
+require_approval_for_writes = true
+enable_kill_switch          = true
+
+blocked_entity_patterns = [
+    "financial.bank_*",     # No direct bank access
+    "customer.payment_*",   # No access to payment details
+]
+
+
+[self_assessment]
+enabled                     = true
+review_frequency            = "daily"  # Business needs tighter feedback loops
+track_prediction_accuracy   = true
+track_approval_rate         = true
+confidence_threshold_warn   = 0.6      # Higher bar for business decisions
+multiple_options_threshold  = 0.75
+
+
+# ================================================================
+# CONNECTORS — Business systems
+# ================================================================
+# TODO: Complete once Fraser provides system details
+
+[[connectors]]
+id          = "pos_system"
+type        = "rest_generic"
+description = "Point of sale / inventory management system"
+[connectors.settings]
+base_url    = "$POS_API_URL"
+api_key     = "$POS_API_KEY"
+
+[[connectors]]
+id          = "repair_ticketing"
+type        = "rest_generic"
+description = "Repair ticket tracking system"
+[connectors.settings]
+base_url    = "$REPAIR_API_URL"
+api_key     = "$REPAIR_API_KEY"
+
+[[connectors]]
+id          = "email_gateway"
+type        = "smtp_email"
+description = "Customer and supplier email communications"
+[connectors.settings]
+smtp_host   = "$SMTP_HOST"
+smtp_user   = "$SMTP_USER"
+smtp_pass   = "$SMTP_PASS"
+
+
+# ================================================================
+# ENTITIES — Business objects (skeleton)
+# ================================================================
+# TODO: Populate from Device Trader's actual data model
+
+[[entities]]
+id          = "inventory.phones"
+name        = "Phone Inventory"
+type        = "product_category"
+connector   = "pos_system"
+readable    = true
+writable    = false
+description = "All phones in inventory — stock levels, pricing, condition"
+
+[[entities]]
+id          = "repairs.active"
+name        = "Active Repair Tickets"
+type        = "ticket_queue"
+connector   = "repair_ticketing"
+readable    = true
+writable    = true
+description = "Current repair tickets awaiting triage, in progress, or completed"
+
+
+# ================================================================
+# ACTIONS — Business operations (skeleton)
+# ================================================================
+
+[[actions]]
+id              = "triage_repair"
+description     = "Diagnose a repair from customer description and suggest quote"
+connector       = "repair_ticketing"
+verb            = "propose"
+entity_pattern  = "repairs.*"
+approval        = "confirm"
+require_confidence = 0.6
+
+[[actions]]
+id              = "draft_customer_email"
+description     = "Draft a customer communication for human review"
+connector       = "email_gateway"
+verb            = "propose"
+entity_pattern  = "*"
+approval        = "confirm"  # EVERY customer-facing message gets reviewed
+
+[[actions]]
+id              = "price_check"
+description     = "Check market pricing for a device"
+connector       = "pos_system"
+verb            = "read"
+entity_pattern  = "inventory.*"
+approval        = "autonomous"
+
+
+# ================================================================
+# BOUNDARIES — Business limits
+# ================================================================
+
+[[boundaries]]
+id                  = "refund_limit"
+description         = "Cannot approve refunds over $100 without human"
+type                = "monetary"
+limit               = 100.0
+unit                = "$"
+escalation_message  = "This refund exceeds $100. Needs manager approval."
+
+[[boundaries]]
+id                  = "pricing_change_limit"
+description         = "Cannot change product pricing by more than 15%"
+type                = "custom"
+limit               = 15.0
+unit                = "%"
+escalation_message  = "Price change exceeds 15%. Flagging for review."
+
+
+# ================================================================
+# SCHEDULED OPS — Daily business rhythm
+# ================================================================
+
+[[scheduled_ops]]
+id                  = "daily_ops_briefing"
+name                = "Daily Operations Briefing"
+description         = "Morning summary: sales, repairs, inventory alerts"
+at_time             = "07:00"
+notify_on_complete  = true
+connectors_needed   = ["pos_system", "repair_ticketing"]
+
+prompt = """
+Generate a daily operations briefing for Device Trader. Include:
+1. Yesterday's sales summary (units, revenue, top sellers)
+2. Repair queue: new tickets, in progress, completed, overdue
+3. Inventory alerts: low stock items, stale inventory (>30 days)
+4. Any anomalies or concerns
+Keep it concise and actionable. Flag urgent items first.
+"""

@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  alfe:
+    build: .
+    container_name: alfe
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data          # Persistent memory DB
+      - ./playbooks:/app/playbooks # Playbook configs
+      - ./.env:/app/.env           # Environment secrets
+    environment:
+      - ALFE_PLAYBOOK=playbooks/cole_sandbox.toml
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
