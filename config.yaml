@@ -9,6 +9,7 @@ arch:
 startup: application
 boot: auto
 init: false
+homeassistant_api: true
 
 # Ingress: Alf-E appears in HA sidebar, proxied through Nabu Casa (HTTPS automatic)
 ingress: true
