@@ -390,6 +390,86 @@ html, body {
 }
 .btn-approve:hover { background: #16a34a; }
 
+/* ── Proposal card (self-building connector code review) ─────────────────── */
+.proposal-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid #7c3aed;
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    max-width: 560px;
+    width: 100%;
+    align-self: flex-start;
+}
+
+.proposal-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #a78bfa;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+}
+
+.proposal-meta {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 10px;
+    margin-bottom: 12px;
+}
+.proposal-meta dt {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.proposal-meta dd {
+    font-size: 12px;
+    color: var(--text);
+    font-family: var(--mono);
+}
+
+.proposal-code-toggle {
+    font-size: 12px;
+    color: #a78bfa;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 0;
+    margin-bottom: 8px;
+    font-family: var(--font);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.proposal-code-toggle:hover { color: #c4b5fd; }
+
+.proposal-code {
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 360px;
+    margin-bottom: 12px;
+    display: none;
+}
+.proposal-code.visible { display: block; }
+
+.proposal-code code {
+    font-family: var(--mono);
+    font-size: 0.82em;
+    color: #e2e8f0;
+    white-space: pre;
+    display: block;
+}
+
+.proposal-warning {
+    font-size: 12px;
+    color: var(--warning);
+    margin-bottom: 10px;
+    line-height: 1.4;
+}
+
 /* ── Markdown content ─────────────────────────────────────────────────────── */
 .message-bubble p  { margin: 0 0 6px; }
 .message-bubble p:last-child { margin-bottom: 0; }

@@ -26,6 +26,12 @@ from engine.model_router import ModelRouter
 from engine.ha_connector import HAConnector
 from engine.memory import Memory
 from engine.agent import Agent
+from engine.backup import BackupEngine
+
+try:
+    from engine.connectors import ConnectorRegistry
+except ImportError:
+    ConnectorRegistry = None
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -46,12 +52,13 @@ router: ModelRouter = None
 ha: HAConnector = None
 memory: Memory = None
 agent: Agent = None
+registry = None  # ConnectorRegistry
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise services on startup."""
-    global playbook, router, ha, memory, agent
+    global playbook, router, ha, memory, agent, registry
 
     # Playbook
     try:
@@ -65,9 +72,8 @@ async def lifespan(app: FastAPI):
     router = ModelRouter(playbook.llm)
     logger.info(f"Model router ready with {len(playbook.llm)} provider(s)")
 
-    # Home Assistant
+    # Home Assistant (legacy connector — kept while migrating)
     if playbook.home_assistant:
-        # When running as HA add-on, use internal supervisor URL + auto token
         supervisor_token = os.getenv("SUPERVISOR_TOKEN")
         if supervisor_token:
             ha_url   = "http://supervisor/core"
@@ -87,12 +93,22 @@ async def lifespan(app: FastAPI):
         else:
             logger.warning("HA token not set — running without Home Assistant")
 
+    # Connector Registry (new architecture)
+    if ConnectorRegistry:
+        try:
+            registry = ConnectorRegistry(playbook)
+            registry.load_all()
+            logger.info(f"Connector registry: {registry}")
+        except Exception as e:
+            logger.warning(f"Connector registry failed to load: {e}")
+            registry = None
+
     # Memory
     memory = Memory()
     logger.info(f"Memory ready ({memory.get_message_count()} messages stored)")
 
     # Agent
-    agent = Agent(router=router, ha=ha, memory=memory, playbook=playbook)
+    agent = Agent(router=router, ha=ha, memory=memory, playbook=playbook, registry=registry)
     logger.info("Alf-E agent ready")
 
     yield  # App runs here
@@ -253,7 +269,7 @@ async def approve_action(req: ApprovalRequest):
     action = agent.pending_approvals[req.index]
 
     if req.approved:
-        # Execute the action
+        # ── HA service call ───────────────────────────────────────────
         if action["type"] == "ha_service_call" and ha:
             success = ha.call_service(
                 action["domain"],
@@ -269,8 +285,92 @@ async def approve_action(req: ApprovalRequest):
             agent.pending_approvals.pop(req.index)
             return {"status": "executed", "success": success}
 
+        # ── Code proposal (self-building connector) ───────────────────
+        if action["type"] == "code_proposal":
+            result = await _deploy_connector(action, req.user_id)
+            agent.pending_approvals.pop(req.index)
+            return result
+
     agent.pending_approvals.pop(req.index)
     return {"status": "rejected"}
+
+
+async def _deploy_connector(action: dict, user_id: str) -> dict:
+    """Write approved connector code, git commit, trigger restart."""
+    import subprocess
+
+    file_path = Path(__file__).parent / action["file_path"]
+    code      = action["code"]
+    cid       = action["connector_id"]
+
+    # 1. Backup before writing anything
+    try:
+        backup = BackupEngine()
+        result = backup.run(label=f"pre_connector_{cid}")
+        if not result.success:
+            return {"status": "error", "detail": f"Backup failed: {result.error}"}
+        logger.info(f"Backup complete: {result.path}")
+    except Exception as e:
+        return {"status": "error", "detail": f"Backup error: {e}"}
+
+    # 2. Write the connector file
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(code, encoding="utf-8")
+        logger.info(f"Connector written: {file_path}")
+    except Exception as e:
+        return {"status": "error", "detail": f"File write error: {e}"}
+
+    # 3. Git commit (best effort — don't block deployment if git fails)
+    try:
+        repo_root = Path(__file__).parent
+        subprocess.run(["git", "add", str(file_path)], cwd=repo_root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", f"feat: add {cid} connector (approved by {user_id})"],
+            cwd=repo_root, check=True, capture_output=True,
+        )
+        logger.info(f"Git committed: {cid} connector")
+    except Exception as e:
+        logger.warning(f"Git commit failed (continuing): {e}")
+
+    # 4. Signal restart (write a flag file — checked by run.sh or supervisor)
+    restart_flag = Path(__file__).parent / ".restart_requested"
+    restart_flag.write_text(f"connector:{cid}\nuser:{user_id}\n")
+
+    return {
+        "status": "deployed",
+        "connector_id": cid,
+        "file": str(file_path.relative_to(Path(__file__).parent)),
+        "restart_pending": True,
+    }
+
+
+@app.get("/api/proposals")
+async def get_proposals():
+    """List pending code proposals (connector drafts awaiting approval)."""
+    if not agent:
+        return {"proposals": []}
+    proposals = [
+        {
+            "index":        i,
+            "connector_id": p.get("connector_id"),
+            "description":  p.get("description"),
+            "file_path":    p.get("file_path"),
+            "code":         p.get("code"),
+            "proposed_by":  p.get("proposed_by"),
+        }
+        for i, p in enumerate(agent.pending_approvals)
+        if p.get("type") == "code_proposal"
+    ]
+    return {"proposals": proposals}
+
+
+@app.post("/api/restart")
+async def request_restart():
+    """Signal Alf-E to restart (e.g. after connector deployment)."""
+    restart_flag = Path(__file__).parent / ".restart_requested"
+    restart_flag.write_text("manual\n")
+    return {"status": "restart_requested"}
 
 
 # ── Sensor Endpoints ─────────────────────────────────────────────────────────
@@ -305,13 +405,15 @@ async def get_sensor(sensor_name: str):
 async def get_status():
     """Get Alf-E system status."""
     cost = memory.get_cost_summary(30) if memory else {}
+    connector_status = registry.get_status() if registry else []
     return {
-        "name": playbook.name if playbook else "Alf-E",
-        "version": playbook.version if playbook else "0.0.0",
-        "ha_connected": ha is not None and ha.health_check() if ha else False,
+        "name":          playbook.name if playbook else "Alf-E",
+        "version":       playbook.version if playbook else "0.0.0",
+        "ha_connected":  ha is not None and ha.health_check() if ha else False,
+        "connectors":    connector_status,
         "message_count": memory.get_message_count() if memory else 0,
-        "cost_30d": cost,
-        "providers": list(playbook.llm.keys()) if playbook else [],
+        "cost_30d":      cost,
+        "providers":     list(playbook.llm.keys()) if playbook else [],
     }
 
 

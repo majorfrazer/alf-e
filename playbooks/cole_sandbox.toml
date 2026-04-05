@@ -123,6 +123,22 @@ verb = "ha_query"
 entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
 approval = "autonomous"
 
+# ── Connectors (loaded by ConnectorRegistry at startup) ──────────────────
+# The registry reads this section to know which connectors to load.
+# connector_id must match a module in engine/connectors/<id>.py
+
+[[connectors]]
+id = "ha"
+enabled = true
+# url and token_env are inherited from [home_assistant] for backwards compat
+
+[[connectors]]
+id = "gmail"
+enabled = true
+user = "alfe.cole@gmail.com"
+# credentials_path and token_path default to /data/gmail_credentials.json and /data/gmail_token.json
+# Run scripts/gmail_auth.py on your Mac to generate the token file.
+
 # ── Scheduled Ops ────────────────────────────────────────────────────────
 
 [[scheduled_ops]]

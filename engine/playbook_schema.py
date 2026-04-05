@@ -83,10 +83,13 @@ class HomeAssistantConfig(BaseModel):
 
 
 class ConnectorConfig(BaseModel):
-    """External service connector (POS, email, CRM, etc)."""
+    """External service connector (HA, Gmail, Tesla, etc.)"""
+    model_config = {"extra": "allow"}   # pass unknown TOML keys through to connector __init__
+
     id: str
-    type: str
+    type: str = ""
     description: str = ""
+    enabled: bool = True
     settings: Dict[str, str] = Field(default_factory=dict)
 
 

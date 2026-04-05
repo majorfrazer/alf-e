@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python3 -m pytest tests/ -v)",
+      "Bash(python3 tests/test_core.py)",
+      "Bash(pip3 install:*)",
+      "Bash(python3 /Users/frasercole/Documents/Alf-E/alf-e-v2.0/tests/test_core.py)",
+      "WebSearch",
+      "Bash(openssl req:*)",
+      "Bash(ipconfig getifaddr:*)",
+      "Bash(git init:*)",
+      "Bash(git remote:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

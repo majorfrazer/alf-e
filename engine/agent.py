@@ -2,11 +2,12 @@
 Alf-E Agent — Agentic tool-use loop.
 
 Full capability set:
-- Home Assistant: read any entity, discover all entities, history/stats, service calls, notifications
+- Connector Registry: HA, Gmail, Tesla, and any connector Alf-E builds itself
 - Memory: search past conversations, store/retrieve persistent context facts
 - Web: search the internet, fetch URLs
 - Files: read and write files within safe paths
 - Self-awareness: status, cost summary, tool listing
+- Self-building: propose_connector generates new connector code for user approval
 """
 
 import os
@@ -16,9 +17,22 @@ import httpx
 from pathlib import Path
 from anthropic import Anthropic
 from engine.model_router import ModelRouter
-from engine.ha_connector import HAConnector
 from engine.memory import Memory
 from engine.playbook_schema import PlaybookConfig, ActionApproval
+
+# Legacy HA connector — kept for backwards compatibility during migration
+try:
+    from engine.ha_connector import HAConnector
+except ImportError:
+    HAConnector = None
+
+# New connector registry — routes tool calls to pluggable connectors
+try:
+    from engine.connectors import ConnectorRegistry
+    from engine.connectors.base import ConnectorResult
+except ImportError:
+    ConnectorRegistry = None
+    ConnectorResult = None
 
 logger = logging.getLogger("alfe.agent")
 
@@ -269,6 +283,56 @@ TOOLS = [
         "description": "Get the full playbook configuration: sensors, actions, boundaries, users, scheduled ops, connectors.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    # ── Self-building ──────────────────────────────────────────────────
+    {
+        "name": "propose_connector",
+        "description": (
+            "Draft a new connector that Alf-E can wire itself into. "
+            "Use when the user asks to connect a new service (Gmail, Google Calendar, Tesla API, weather, camera, etc.). "
+            "Generates a BaseConnector subclass scaffold with all required methods. "
+            "The user reviews the generated code in the UI and approves or rejects it. "
+            "On approval: code is written to engine/connectors/<id>.py, git committed, server restarted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "connector_id": {
+                    "type": "string",
+                    "description": "snake_case ID for this connector, e.g. 'gmail', 'tesla', 'bom_weather'",
+                },
+                "connector_type": {
+                    "type": "string",
+                    "description": "Category, e.g. 'email', 'vehicle', 'weather', 'security', 'calendar'",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "One-line description of what this connector does",
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name":        {"type": "string"},
+                            "description": {"type": "string"},
+                            "params":      {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                    "description": "List of tool names and descriptions this connector will expose",
+                },
+                "auth_method": {
+                    "type": "string",
+                    "description": "How it authenticates, e.g. 'oauth2', 'api_key', 'bearer_token', 'none'",
+                },
+                "env_vars": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Environment variable names needed, e.g. ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET']",
+                },
+            },
+            "required": ["connector_id", "description"],
+        },
+    },
 ]
 
 
@@ -278,16 +342,27 @@ class Agent:
     def __init__(
         self,
         router: ModelRouter,
-        ha: HAConnector = None,
+        ha=None,                    # legacy HAConnector — kept during migration
         memory: Memory = None,
         playbook: PlaybookConfig = None,
+        registry=None,              # ConnectorRegistry — new architecture
     ):
         self.router = router
         self.ha = ha
         self.memory = memory
         self.playbook = playbook
+        self.registry = registry    # ConnectorRegistry or None
         self.pending_approvals: list[dict] = []
         self.last_model_used: str = ""
+
+    # ── Tool List ──────────────────────────────────────────────────────
+
+    def _get_tools(self) -> list[dict]:
+        """Return full tool list: core tools + any tools from the connector registry."""
+        all_tools = list(TOOLS)  # core non-connector tools
+        if self.registry:
+            all_tools.extend(self.registry.get_anthropic_tools())
+        return all_tools
 
     # ── System Prompt ──────────────────────────────────────────────────
 
@@ -311,7 +386,12 @@ class Agent:
         else:
             safe_paths = "/data/alfe_notes (default)"
 
-        ha_status = "connected" if self.ha else "NOT connected"
+        ha_status = "connected" if (self.ha or (self.registry and "ha" in self.registry.connector_ids())) else "NOT connected"
+
+        connector_info = ""
+        if self.registry and self.registry.connector_ids():
+            cids = self.registry.connector_ids()
+            connector_info = f"\nLOADED CONNECTORS: {', '.join(cids)} ({self.registry.tool_count()} tools total)"
 
         return f"""{personality if personality else '''You are Alf-C: Fraser Cole's personal AI agent running 24/7 on a mini PC in Ormeau, Brisbane.
 
@@ -356,7 +436,12 @@ FILES (safe paths: {safe_paths}):
 SELF:
   • get_status          — system status, connections, model in use
   • get_playbook_info   — full playbook config
-{user_info}
+
+SELF-BUILDING:
+  • propose_connector   — draft connector code for a new service the user wants to connect
+                          (Gmail, Google Calendar, Tesla API, weather, cameras, etc.)
+                          User reviews the generated code in the UI and approves/rejects.
+{connector_info}{user_info}
 
 OPERATING RULES:
 - Always use tools to get real data — never guess sensor values, entity states, or current facts.
@@ -365,6 +450,7 @@ OPERATING RULES:
 - For anything unknown in HA: use list_ha_entities to discover, then get_ha_entity to read.
 - For current info (weather, prices, news): use web_search.
 - When the user mentions something worth remembering: use remember() without being asked.
+- When the user asks to connect a new service: use propose_connector to draft the code.
 - Be transparent about approval tiers — tell the user when an action needs their confirmation.
 - Never expose API keys or tokens.
 - Keep responses concise and natural — you're talking to a mate."""
@@ -387,7 +473,21 @@ OPERATING RULES:
 
     def _execute_tool(self, name: str, inp: dict, user_id: str = "default") -> str:
 
-        # ── HA: pre-configured sensors ─────────────────────────────────
+        # ── Connector Registry (new architecture) ──────────────────────
+        # Try the registry first — it handles all connector-provided tools.
+        # Falls through to legacy handlers if not handled by registry.
+        if self.registry and self.registry.has_tool(name):
+            result = self.registry.execute(name, inp, user_id)
+            if result.requires_approval:
+                self.pending_approvals.append(result.approval_payload or {"tool": name, "inp": inp})
+                return f"Queued for approval: {name}"
+            return result.content
+
+        # ── Self-building: propose_connector ───────────────────────────
+        if name == "propose_connector":
+            return self._handle_propose_connector(inp, user_id)
+
+        # ── HA: pre-configured sensors (legacy) ───────────────────────
         if name == "get_sensor":
             sensor_name = inp["sensor_name"]
             if not self.playbook or sensor_name not in self.playbook.sensors:
@@ -664,14 +764,19 @@ OPERATING RULES:
         if name == "get_status":
             pb = self.playbook
             cost = self.memory.get_cost_summary(30) if self.memory else {}
+            registry_info = (
+                f"Registry:    {self.registry.connector_ids()} ({self.registry.tool_count()} tools)"
+                if self.registry else "Registry:    not loaded"
+            )
             lines = [
                 f"Playbook:    {pb.name} v{pb.version}" if pb else "Playbook:    none",
                 f"HA:          {'connected' if self.ha else 'not connected'}",
+                registry_info,
                 f"Model:       {self.last_model_used or 'not yet called'}",
                 f"Messages:    {self.memory.get_message_count() if self.memory else 0}",
                 f"Cost (30d):  ${cost.get('cost_usd', 0):.4f}",
                 f"Providers:   {list(pb.llm.keys()) if pb else []}",
-                f"Tools:       {len(TOOLS)} available",
+                f"Tools:       {len(self._get_tools())} available",
             ]
             return "\n".join(lines)
 
@@ -694,6 +799,138 @@ OPERATING RULES:
             return "\n".join(lines)
 
         return f"Unknown tool: {name}"
+
+    # ── Self-building: propose connector ────────────────────────────────
+
+    def _handle_propose_connector(self, inp: dict, user_id: str) -> str:
+        """Generate a BaseConnector subclass scaffold and queue it as a code proposal."""
+        connector_id   = inp["connector_id"]
+        description    = inp["description"]
+        connector_type = inp.get("connector_type", "external_service")
+        auth_method    = inp.get("auth_method", "api_key")
+        env_vars       = inp.get("env_vars", [f"{connector_id.upper()}_API_KEY"])
+        tools_spec     = inp.get("tools", [])
+
+        class_name = "".join(w.capitalize() for w in connector_id.split("_")) + "Connector"
+
+        # Build tool definitions
+        tool_defs = []
+        tool_handlers = []
+        for t in tools_spec:
+            tname = t.get("name", f"{connector_id}_action")
+            tdesc = t.get("description", "")
+            params = t.get("params", [])
+            props = {p: {"type": "string"} for p in params}
+            req = json.dumps(params)
+            tool_defs.append(f"""            ToolDefinition(
+                name="{tname}",
+                description="{tdesc}",
+                input_schema={{
+                    "type": "object",
+                    "properties": {json.dumps(props)},
+                    "required": {req},
+                }},
+                approval_tier="autonomous",
+            ),""")
+            tool_handlers.append(f"""            elif name == "{tname}":
+                # TODO: implement {tname}
+                return ConnectorResult(success=False, content="Not yet implemented: {tname}")""")
+
+        tools_block = "\n".join(tool_defs) if tool_defs else f"""            ToolDefinition(
+                name="{connector_id}_status",
+                description="Get the status of the {connector_id} connection.",
+                input_schema={{"type": "object", "properties": {{}}}},
+                approval_tier="autonomous",
+            ),"""
+
+        handlers_block = "\n".join(tool_handlers) if tool_handlers else f"""            elif name == "{connector_id}_status":
+                return ConnectorResult(success=True, content="Connected to {connector_id}.")"""
+
+        env_inits = "\n".join(
+            f'        self._{v.lower()} = self._env("{v}") or ""'
+            for v in env_vars
+        )
+
+        env_check = " and ".join(f"self._{v.lower()}" for v in env_vars) if env_vars else "True"
+
+        code = f'''"""
+Alf-E {connector_id} connector — auto-generated scaffold.
+Generated by Alf-E self-building loop. Fill in TODO sections before approving.
+
+Auth: {auth_method}
+Env vars required: {", ".join(env_vars)}
+"""
+
+import logging
+from engine.connectors.base import BaseConnector, ToolDefinition, ConnectorResult
+
+logger = logging.getLogger("alfe.connector.{connector_id}")
+
+
+class {class_name}(BaseConnector):
+    """{ description }"""
+
+    connector_id   = "{connector_id}"
+    connector_type = "{connector_type}"
+    description    = "{description}"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+{env_inits}
+
+    def connect(self) -> bool:
+        if not ({env_check}):
+            logger.error("{connector_id}: missing required environment variables")
+            return False
+        # TODO: test the connection (e.g. make a lightweight API call)
+        logger.info("{connector_id} connector connected.")
+        return True
+
+    def disconnect(self) -> None:
+        self.connected = False
+
+    def health_check(self) -> bool:
+        # TODO: implement a lightweight health check
+        return self.connected
+
+    def get_tools(self) -> list[ToolDefinition]:
+        return [
+{tools_block}
+        ]
+
+    def execute_tool(self, name: str, inp: dict, user_id: str = "fraser") -> ConnectorResult:
+        try:
+            if False:
+                pass
+{handlers_block}
+            else:
+                return ConnectorResult(success=False, content=f"Unknown tool: {{name}}")
+        except Exception as e:
+            logger.error(f"{connector_id}.execute_tool({{name}}) error: {{e}}")
+            return ConnectorResult(success=False, content=f"Error: {{e}}")
+'''
+
+        proposal = {
+            "type":         "code_proposal",
+            "connector_id": connector_id,
+            "class_name":   class_name,
+            "description":  description,
+            "file_path":    f"engine/connectors/{connector_id}.py",
+            "code":         code,
+            "proposed_by":  user_id,
+        }
+        self.pending_approvals.append(proposal)
+
+        tool_names = [t.get("name", "?") for t in tools_spec] if tools_spec else [f"{connector_id}_status"]
+        return (
+            f"Draft connector ready for review!\n\n"
+            f"  File:    engine/connectors/{connector_id}.py\n"
+            f"  Class:   {class_name}\n"
+            f"  Tools:   {', '.join(tool_names)}\n"
+            f"  Auth:    {auth_method}\n"
+            f"  Env:     {', '.join(env_vars)}\n\n"
+            f"The code is queued — approve it in the UI to write the file, commit, and reload."
+        )
 
     # ── Chat (non-streaming) ───────────────────────────────────────────
 

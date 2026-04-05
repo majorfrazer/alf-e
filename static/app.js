@@ -106,7 +106,9 @@ function renderMessages() {
     }
 
     const html = state.messages.map((msg, i) => buildMessageHtml(msg, i)).join('');
-    const approvalsHtml = state.pendingApprovals.map((a, i) => buildApprovalHtml(a, i)).join('');
+    const approvalsHtml = state.pendingApprovals.map((a, i) => {
+        return a.type === 'code_proposal' ? buildProposalHtml(a, i) : buildApprovalHtml(a, i);
+    }).join('');
 
     container.innerHTML = html + approvalsHtml;
     scrollToBottom();
@@ -165,6 +167,42 @@ function buildApprovalHtml(a, index) {
             </div>
         </div>`;
 }
+
+function buildProposalHtml(a, index) {
+    const codeId = `proposal-code-${index}`;
+    const safeCode = escHtml(a.code || '');
+    return `
+        <div class="proposal-card" id="approval-${index}">
+            <div class="proposal-title">⚡ New Connector Proposal</div>
+            <dl class="proposal-meta">
+                <dt>ID</dt>    <dd>${escHtml(a.connector_id || '')}</dd>
+                <dt>File</dt>  <dd>${escHtml(a.file_path || '')}</dd>
+                <dt>Desc</dt>  <dd>${escHtml(a.description || '')}</dd>
+            </dl>
+            <div class="proposal-warning">
+                Review the generated code before approving. Once approved, the file will be written,
+                committed to git, and Alf-E will restart to load the new connector.
+            </div>
+            <button class="proposal-code-toggle" onclick="toggleProposalCode('${codeId}', this)">
+                Show generated code ▾
+            </button>
+            <div class="proposal-code" id="${codeId}">
+                <code>${safeCode}</code>
+            </div>
+            <div class="approval-actions">
+                <button class="btn-reject"  onclick="handleApproval(${index}, false)">Reject</button>
+                <button class="btn-approve" onclick="handleApproval(${index}, true)">Deploy ✓</button>
+            </div>
+        </div>`;
+}
+
+function toggleProposalCode(codeId, btn) {
+    const el = document.getElementById(codeId);
+    if (!el) return;
+    el.classList.toggle('visible');
+    btn.textContent = el.classList.contains('visible') ? 'Hide code ▴' : 'Show generated code ▾';
+}
+window.toggleProposalCode = toggleProposalCode;
 
 /** Re-render only the last message element (used during streaming). */
 function updateLastMessage() {
@@ -316,6 +354,8 @@ async function handleApproval(index, approved) {
     const card = el(`approval-${index}`);
     if (card) { card.style.opacity = '0.5'; card.style.pointerEvents = 'none'; }
 
+    const isProposal = state.pendingApprovals[index]?.type === 'code_proposal';
+
     try {
         const res  = await fetch('api/approve', {
             method:  'POST',
@@ -328,9 +368,19 @@ async function handleApproval(index, approved) {
 
         let resultText;
         if (approved) {
-            resultText = data.success !== false ? '✓ Done.' : '✗ Action failed — check HA logs.';
+            if (isProposal) {
+                if (data.status === 'deployed') {
+                    resultText = `✓ Connector deployed to \`${data.file}\`. Alf-E is restarting to load it — back in ~30 seconds.`;
+                    // Show restart banner
+                    showRestartBanner();
+                } else {
+                    resultText = `✗ Deployment failed: ${data.detail || 'unknown error'}`;
+                }
+            } else {
+                resultText = data.success !== false ? '✓ Done.' : '✗ Action failed — check HA logs.';
+            }
         } else {
-            resultText = '✗ Action rejected.';
+            resultText = isProposal ? '✗ Connector proposal rejected.' : '✗ Action rejected.';
         }
         state.messages.push({ role: 'assistant', content: resultText });
         saveMessages(state.conversationId);
@@ -340,6 +390,40 @@ async function handleApproval(index, approved) {
         if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'auto'; }
         console.error('[Alf-E] approval error:', err);
     }
+}
+
+function showRestartBanner() {
+    // Remove existing banner if any
+    const existing = document.getElementById('restart-banner');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'restart-banner';
+    banner.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+        background: #7c3aed; color: #fff; text-align: center;
+        padding: 10px 16px; font-size: 13px; font-weight: 600;
+    `;
+    banner.textContent = '⚡ Deploying connector — Alf-E restarting, please wait…';
+    document.body.prepend(banner);
+
+    // Poll until the server is back
+    let attempts = 0;
+    const poll = setInterval(async () => {
+        attempts++;
+        try {
+            const r = await fetch('api/status');
+            if (r.ok) {
+                clearInterval(poll);
+                banner.style.background = '#16a34a';
+                banner.textContent = '✓ Alf-E is back online with the new connector loaded.';
+                setTimeout(() => banner.remove(), 4000);
+            }
+        } catch {
+            // still restarting
+        }
+        if (attempts > 60) { clearInterval(poll); banner.remove(); }
+    }, 2000);
 }
 
 async function loadSensors() {
