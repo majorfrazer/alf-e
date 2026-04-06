@@ -56,6 +56,9 @@ capabilities = ["quick", "status"]
 # ── Home Assistant ───────────────────────────────────────────────────────
 
 [home_assistant]
+# HA add-on mode: server.py auto-uses http://supervisor/core + SUPERVISOR_TOKEN
+# N95 Docker mode: set HA_URL=http://homeassistant:8123 in your .env
+# Remote (Nabu Casa): use the URL below
 url = "https://xscydqtpjre3sxxwnt6irbmy6tnmnjeo.ui.nabu.casa"
 token_env = "HA_API_TOKEN"
 

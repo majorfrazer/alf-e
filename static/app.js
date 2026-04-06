@@ -441,8 +441,23 @@ async function loadStatus() {
         const res  = await fetch('api/status');
         const data = await res.json();
         const dot  = el('status-dot');
-        dot.className = 'status-dot ' + (data.ha_connected ? 'connected' : 'disconnected');
-        dot.title     = data.ha_connected ? `HA Connected — ${data.name} v${data.version}` : 'HA Offline';
+
+        // Determine overall connection — HA legacy OR registry connectors
+        const connectors    = data.connectors || [];
+        const anyConnected  = data.ha_connected || connectors.some(c => c.connected);
+        dot.className       = 'status-dot ' + (anyConnected ? 'connected' : 'disconnected');
+
+        // Build tooltip: show each connector's status
+        let tip = `${data.name} v${data.version}\n`;
+        if (data.ha_connected) tip += '✓ HA (legacy)\n';
+        for (const c of connectors) {
+            tip += `${c.connected ? '✓' : '✗'} ${c.connector_id} — ${c.description}\n`;
+        }
+        if (!anyConnected) tip += 'No connectors online';
+        dot.title = tip.trim();
+
+        // Store connector list for later use (e.g. status panel)
+        state.connectors = connectors;
     } catch {
         el('status-dot').className = 'status-dot disconnected';
     }

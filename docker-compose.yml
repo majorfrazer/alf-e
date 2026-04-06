@@ -1,20 +1,128 @@
-version: "3.8"
+# Alf-E — Full stack for N95 mini PC (Intel N100, 12GB RAM, 500GB SSD)
+# Ubuntu Server 24.04 LTS, no GUI
+#
+# Services:
+#   alf-e         — Main AI agent (this repo) on port 8099
+#   homeassistant — HA Core on port 8123
+#   ollama        — Local LLM inference on port 11434
+#   tailscale     — Mesh VPN + Funnel for family access without VPN app
+#
+# First-time setup:
+#   1. cp .env.example .env   ← fill in your API keys
+#   2. docker compose up -d
+#   3. Alf-E:          http://n95:8099
+#      Home Assistant:  http://n95:8123
+#
+# Tailscale Funnel (public HTTPS — family access, no Tailscale app needed):
+#   docker exec tailscale tailscale funnel --bg 8099
+#   → https://<machine-name>.tail-xxxxx.ts.net
+
+version: "3.9"
+
+networks:
+  alfe_net:
+    driver: bridge
+
+volumes:
+  ha_config:
+  alfe_data:
+  ollama_models:
+  tailscale_state:
 
 services:
-  alfe:
-    build: .
-    container_name: alfe
+
+  # ── Alf-E ──────────────────────────────────────────────────────────────────
+  alf-e:
+    build:
+      context: .
+      dockerfile: Dockerfile.standalone
+    container_name: alf-e
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8099:8099"
     volumes:
-      - ./data:/app/data          # Persistent memory DB
-      - ./playbooks:/app/playbooks # Playbook configs
-      - ./.env:/app/.env           # Environment secrets
+      - alfe_data:/data                             # SQLite memory + connector tokens
+      - ./playbooks:/app/playbooks:ro               # Hot-reload playbooks without rebuild
+      - ./engine/connectors:/app/engine/connectors  # Self-built connectors written at runtime
     environment:
-      - ALFE_PLAYBOOK=playbooks/cole_sandbox.toml
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - HA_API_TOKEN=${HA_API_TOKEN:-}
+      - HA_URL=http://homeassistant:8123
+      - B2_BUCKET=${B2_BUCKET:-}
+      - B2_PREFIX=${B2_PREFIX:-alfe-backups}
+      - RCLONE_REMOTE=${RCLONE_REMOTE:-b2}
+      - ALFE_PLAYBOOK=${ALFE_PLAYBOOK:-playbooks/cole_sandbox.toml}
+      - ALFE_DATA_DIR=/data
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      homeassistant:
+        condition: service_started
+    networks:
+      - alfe_net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:8099/api/status"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 20s
+
+  # ── Home Assistant Core ────────────────────────────────────────────────────
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8123:8123"
+    volumes:
+      - ha_config:/config
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=Australia/Brisbane
+    networks:
+      - alfe_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Ollama (local LLM — optional fast/cheap routing) ──────────────────────
+  # model_router can route "fast" tier here instead of cloud APIs
+  # First-run: docker exec ollama ollama pull llama3.2:3b
+  # Recommended for N100 (no GPU): llama3.2:3b, phi3.5:mini
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
+    networks:
+      - alfe_net
+
+  # ── Tailscale ─────────────────────────────────────────────────────────────
+  # After first run:
+  #   docker exec tailscale tailscale up --authkey=<tskey-...>
+  #   docker exec tailscale tailscale funnel --bg 8099
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+    network_mode: host

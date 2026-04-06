@@ -76,11 +76,13 @@ async def lifespan(app: FastAPI):
     if playbook.home_assistant:
         supervisor_token = os.getenv("SUPERVISOR_TOKEN")
         if supervisor_token:
+            # HA add-on: use internal supervisor API
             ha_url   = "http://supervisor/core"
             ha_token = supervisor_token
             logger.info("Running as HA add-on — using supervisor internal API")
         else:
-            ha_url   = playbook.home_assistant.url
+            # Standalone / Docker: HA_URL env overrides playbook URL
+            ha_url   = os.getenv("HA_URL", playbook.home_assistant.url)
             ha_token = os.getenv(playbook.home_assistant.token_env, "")
 
         if ha_token:

@@ -1,10 +1,30 @@
+# Secrets — never commit these
 .env
+*.pem
+gmail_credentials.json
+gmail_token.json
+*_credentials.json
+*_token.json
+
+# Runtime flags
+.restart_requested
+
+# Python
 *.pyc
 __pycache__/
-.DS_Store
-data/
 .venv/
 venv/
+
+# Data
+data/
 *.db
+
+# OS
+.DS_Store
+
+# Node
 node_modules/
-*.pem
+
+# Build artifacts
+alfe_code.zip
+*.zip
