@@ -21,6 +21,7 @@ from engine.playbook_schema import (
     ScheduledOpConfig,
     SecurityConfig,
     SelfAssessmentConfig,
+    EnergyConfig,
 )
 
 
@@ -62,6 +63,9 @@ def load_playbook(path: Path) -> PlaybookConfig:
     # ── Security ─────────────────────────────────────────────────────────
     security = SecurityConfig(**data.get("security", {}))
 
+    # ── Energy ───────────────────────────────────────────────────────────
+    energy = EnergyConfig(**data.get("energy", {}))
+
     # ── Self-assessment ──────────────────────────────────────────────────
     self_assessment = SelfAssessmentConfig(**data.get("self_assessment", {}))
 
@@ -102,6 +106,7 @@ def load_playbook(path: Path) -> PlaybookConfig:
         llm=llm_dict,
         home_assistant=ha_config,
         sensors=sensors,
+        energy=energy,
         security=security,
         self_assessment=self_assessment,
         users=users,

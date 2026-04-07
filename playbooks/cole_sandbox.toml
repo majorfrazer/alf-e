@@ -1,7 +1,7 @@
 [metadata]
 name = "Cole Family Sandbox"
 description = "Fraser's household Alf-E instance — the proving ground"
-version = "2.0"
+version = "2.3.1"
 owner = "Fraser Cole"
 timezone = "Australia/Brisbane"
 
@@ -97,6 +97,21 @@ channel = "pwa_push"
 enabled = true
 urgency_min = "normal"
 
+# ── Energy ───────────────────────────────────────────────────────────────
+# Structured tariff data — the agent uses these for charge optimisation
+# and cost calculations instead of parsing the personality prompt.
+
+[energy]
+peak_rate = 0.3557
+offpeak_rate = 0.08
+feed_in_rate = 0.03
+peak_start = "06:00"
+peak_end = "00:00"
+solar_capacity_kw = 6.6
+battery_capacity_kwh = 0.0
+battery_min_soc = 20
+currency = "AUD"
+
 # ── Security ─────────────────────────────────────────────────────────────
 
 [security]
@@ -106,8 +121,35 @@ max_actions_per_hour = 300
 audit_log_retention_days = 90
 safe_file_roots = ["/data/alfe_notes", "/data/reports"]
 
+# ── Boundaries (safety rails the agent must never violate) ───────────────
+
+[[boundaries]]
+id = "tesla_min_charge"
+description = "Never discharge Tesla below 20% — always keep enough for an emergency trip"
+type = "custom"
+limit = 20.0
+unit = "percent"
+escalation_message = "Tesla SOC at {value}% — refusing to discharge further."
+
+[[boundaries]]
+id = "max_daily_spend"
+description = "Max daily API spend before Alf-E self-limits to fast tier only"
+type = "monetary"
+limit = 2.00
+unit = "USD"
+escalation_message = "Daily API spend hit ${value} — switching to fast tier only."
+
+[[boundaries]]
+id = "no_fridge_off"
+description = "Never turn off the fridge or freezer — food safety"
+type = "custom"
+limit = 0.0
+unit = "boolean"
+escalation_message = "Blocked: cannot turn off fridge/freezer."
+
 # ── Actions ──────────────────────────────────────────────────────────────
 
+# Read-only sensor checks — always autonomous
 [actions.solar_check]
 description = "Check current solar generation"
 verb = "ha_query"
@@ -125,6 +167,42 @@ description = "Check house power consumption"
 verb = "ha_query"
 entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
 approval = "autonomous"
+
+# Smart plugs — toggling is safe, just notify
+[actions.smart_plug_toggle]
+description = "Toggle any smart plug on/off"
+verb = "ha_call"
+entity_pattern = "switch"
+approval = "notify"
+
+# Lights — safe to toggle autonomously
+[actions.light_control]
+description = "Control any light"
+verb = "ha_call"
+entity_pattern = "light"
+approval = "autonomous"
+
+# Climate — needs confirmation (affects comfort + energy cost)
+[actions.climate_control]
+description = "Change thermostat or climate settings"
+verb = "ha_call"
+entity_pattern = "climate"
+approval = "confirm"
+
+# Automations — writing/deleting is admin-only
+[actions.automation_write]
+description = "Create or modify a Home Assistant automation"
+verb = "ha_call"
+entity_pattern = "automation"
+command = "ha_write_automation"
+approval = "admin_only"
+
+[actions.automation_delete]
+description = "Delete a Home Assistant automation"
+verb = "ha_call"
+entity_pattern = "automation"
+command = "ha_delete_automation"
+approval = "admin_only"
 
 # ── Connectors (loaded by ConnectorRegistry at startup) ──────────────────
 # The registry reads this section to know which connectors to load.

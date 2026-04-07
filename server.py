@@ -11,12 +11,14 @@ import json
 import asyncio
 import logging
 import threading
+import time
+import secrets
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -27,6 +29,7 @@ from engine.ha_connector import HAConnector
 from engine.memory import Memory
 from engine.agent import Agent
 from engine.backup import BackupEngine
+from engine.scheduler import Scheduler
 
 try:
     from engine.connectors import ConnectorRegistry
@@ -53,12 +56,13 @@ ha: HAConnector = None
 memory: Memory = None
 agent: Agent = None
 registry = None  # ConnectorRegistry
+scheduler: Scheduler = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise services on startup."""
-    global playbook, router, ha, memory, agent, registry
+    global playbook, router, ha, memory, agent, registry, scheduler
 
     # Playbook
     try:
@@ -113,8 +117,17 @@ async def lifespan(app: FastAPI):
     agent = Agent(router=router, ha=ha, memory=memory, playbook=playbook, registry=registry)
     logger.info("Alf-E agent ready")
 
+    # Scheduler — runs scheduled_ops from the playbook (e.g. morning briefing)
+    scheduler = Scheduler(
+        ops=playbook.scheduled_ops if playbook else [],
+        timezone=playbook.timezone if playbook else "UTC",
+    )
+    scheduler.attach_agent(agent)
+    scheduler.start()
+
     yield  # App runs here
 
+    scheduler.stop()
     logger.info("Alf-E shutting down")
 
 
@@ -126,6 +139,91 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+
+
+# ── Auth Middleware ──────────────────────────────────────────────────────────
+# When running as HA add-on, ingress handles auth — no token needed.
+# In standalone/Docker mode, ALFE_API_TOKEN must be set or one is auto-generated.
+
+_IS_HA_ADDON = bool(os.getenv("SUPERVISOR_TOKEN"))
+_API_TOKEN = os.getenv("ALFE_API_TOKEN", "")
+
+if not _IS_HA_ADDON and not _API_TOKEN:
+    _API_TOKEN = secrets.token_urlsafe(32)
+    logger.warning(
+        f"No ALFE_API_TOKEN set — auto-generated token for this session:\n"
+        f"  ALFE_API_TOKEN={_API_TOKEN}\n"
+        f"  Add this to your .env to keep it stable across restarts."
+    )
+
+# Paths that don't need auth (static files, health, docs)
+_PUBLIC_PATHS = {"/", "/sw.js", "/docs", "/openapi.json", "/redoc"}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Bearer token auth for all /api/ endpoints in standalone mode."""
+    path = request.url.path
+
+    # HA add-on mode — ingress handles auth, skip everything
+    if _IS_HA_ADDON:
+        return await call_next(request)
+
+    # Static files and public paths — no auth
+    if path in _PUBLIC_PATHS or path.startswith("/static"):
+        return await call_next(request)
+
+    # API endpoints — require bearer token
+    if path.startswith("/api/"):
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse(status_code=401, content={"detail": "Missing Authorization header. Use: Bearer <ALFE_API_TOKEN>"})
+        token = auth_header[7:]
+        if token != _API_TOKEN:
+            return JSONResponse(status_code=403, content={"detail": "Invalid API token"})
+
+    return await call_next(request)
+
+
+# ── Rate Limiter ────────────────────────────────────────────────────────────
+# Uses the SecurityConfig values from the playbook.
+
+_rate_counts: dict[str, list[float]] = {}  # ip → list of timestamps
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Enforce max_actions_per_minute and max_actions_per_hour from SecurityConfig."""
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    # Get limits from playbook (loaded by lifespan, may be None at startup)
+    per_minute = 30
+    per_hour = 300
+    if playbook and playbook.security:
+        per_minute = playbook.security.max_actions_per_minute
+        per_hour = playbook.security.max_actions_per_hour
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+
+    if client_ip not in _rate_counts:
+        _rate_counts[client_ip] = []
+
+    # Prune timestamps older than 1 hour
+    _rate_counts[client_ip] = [t for t in _rate_counts[client_ip] if now - t < 3600]
+
+    timestamps = _rate_counts[client_ip]
+    last_minute = sum(1 for t in timestamps if now - t < 60)
+    last_hour = len(timestamps)
+
+    if last_minute >= per_minute:
+        return JSONResponse(status_code=429, content={"detail": f"Rate limit: max {per_minute} requests/minute"})
+    if last_hour >= per_hour:
+        return JSONResponse(status_code=429, content={"detail": f"Rate limit: max {per_hour} requests/hour"})
+
+    timestamps.append(now)
+    return await call_next(request)
 
 
 # ── API Models ───────────────────────────────────────────────────────────────
@@ -446,6 +544,7 @@ async def get_status():
         "version":       playbook.version if playbook else "0.0.0",
         "ha_connected":  ha is not None and ha.health_check() if ha else False,
         "connectors":    connector_status,
+        "scheduler":     scheduler.get_status() if scheduler else {},
         "message_count": memory.get_message_count() if memory else 0,
         "cost_30d":      cost,
         "providers":     list(playbook.llm.keys()) if playbook else [],

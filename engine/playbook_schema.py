@@ -169,6 +169,19 @@ class SecurityConfig(BaseModel):
     enable_kill_switch: bool = False
 
 
+class EnergyConfig(BaseModel):
+    """Structured energy/tariff data for computational use by the agent."""
+    peak_rate: float = 0.0          # $/kWh during peak
+    offpeak_rate: float = 0.0       # $/kWh during off-peak
+    feed_in_rate: float = 0.0       # $/kWh solar feed-in credit
+    peak_start: str = "06:00"       # HH:MM
+    peak_end: str = "00:00"         # HH:MM
+    solar_capacity_kw: float = 0.0  # installed panel capacity
+    battery_capacity_kwh: float = 0.0
+    battery_min_soc: int = 20       # never discharge below this %
+    currency: str = "AUD"
+
+
 class SelfAssessmentConfig(BaseModel):
     """Self-assessment / continuous improvement settings."""
     enabled: bool = False
@@ -198,6 +211,9 @@ class PlaybookConfig(BaseModel):
     # Home Assistant integration
     home_assistant: Optional[HomeAssistantConfig] = None
     sensors: Dict[str, str] = Field(default_factory=dict)
+
+    # Energy config
+    energy: EnergyConfig = Field(default_factory=EnergyConfig)
 
     # Security
     security: SecurityConfig = Field(default_factory=SecurityConfig)

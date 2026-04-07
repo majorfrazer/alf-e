@@ -22,7 +22,7 @@ def test_load_cole_sandbox():
     """Cole sandbox playbook loads and validates correctly."""
     pb = load_playbook(Path("playbooks/cole_sandbox.toml"))
     assert pb.name == "Cole Family Sandbox"
-    assert pb.version == "2.0"
+    assert pb.version == "2.3.1"
     assert "default" in pb.llm
     assert "heavy" in pb.llm
     assert "fast" in pb.llm

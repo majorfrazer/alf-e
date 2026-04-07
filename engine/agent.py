@@ -365,6 +365,18 @@ class Agent:
             all_tools.extend(self.registry.get_anthropic_tools())
         return all_tools
 
+    def _build_tool_docs(self) -> str:
+        """Build a dynamic tool reference from all available tools (core + registry)."""
+        lines = []
+        for tool in self._get_tools():
+            name = tool["name"]
+            desc = tool.get("description", "")
+            # Truncate long descriptions for the system prompt
+            if len(desc) > 120:
+                desc = desc[:117] + "..."
+            lines.append(f"  • {name:30s} — {desc}")
+        return "\n".join(lines)
+
     # ── System Prompt ──────────────────────────────────────────────────
 
     def get_system_prompt(self, user_id: str = "default") -> str:
@@ -394,6 +406,29 @@ class Agent:
             cids = self.registry.connector_ids()
             connector_info = f"\nLOADED CONNECTORS: {', '.join(cids)} ({self.registry.tool_count()} tools total)"
 
+        # Build dynamic tool docs from all available tools
+        tool_docs = self._build_tool_docs()
+
+        # Build boundaries info
+        boundaries_info = ""
+        if pb and pb.boundaries:
+            boundaries_info = "\n\nSAFETY BOUNDARIES (never violate these):\n"
+            boundaries_info += "\n".join(f"  • {b.id}: {b.description} (limit: {b.limit} {b.unit})" for b in pb.boundaries)
+
+        # Build energy config info
+        energy_info = ""
+        if pb and pb.energy and pb.energy.peak_rate > 0:
+            e = pb.energy
+            energy_info = (
+                f"\n\nENERGY TARIFFS ({e.currency}):\n"
+                f"  Peak: ${e.peak_rate}/kWh ({e.peak_start}–{e.peak_end})\n"
+                f"  Off-peak: ${e.offpeak_rate}/kWh\n"
+                f"  Feed-in: ${e.feed_in_rate}/kWh\n"
+                f"  Solar capacity: {e.solar_capacity_kw} kW"
+            )
+            if e.battery_capacity_kwh > 0:
+                energy_info += f"\n  Battery: {e.battery_capacity_kwh} kWh (min SOC: {e.battery_min_soc}%)"
+
         return f"""{personality if personality else '''You are Alf-C: Fraser Cole's personal AI agent running 24/7 on a mini PC in Ormeau, Brisbane.
 
 PERSONALITY:
@@ -408,41 +443,12 @@ YOU ARE AN AGENT — NOT A CHATBOT.
 You have tools. Use them. Don't guess when you can look it up.
 ═══════════════════════════════════════════
 
-HOME ASSISTANT ({ha_status}):
-  • get_sensor          — quick read of pre-configured sensors (solar, Tesla, house power, grid)
-  • get_all_sensors     — read all pre-configured sensors at once
-  • get_ha_entity       — read ANY HA entity by entity_id (lights, switches, climate, people, etc.)
-  • list_ha_entities    — discover all entities, optionally filtered by domain
-  • get_ha_history      — historical stats (min/max/avg) for any entity over hours/days
-  • ha_service_call     — control any device (subject to approval tiers)
-  • send_notification   — push notification to Fraser's phone
+AVAILABLE TOOLS:
+{tool_docs}
 
 PRE-CONFIGURED SENSORS:
 {sensors_info or "  (none configured)"}
-
-MEMORY & CONTEXT:
-  • search_memory       — search past conversation history
-  • remember            — store a persistent fact across conversations
-  • recall              — retrieve stored facts by domain
-  • get_cost_summary    — API usage and cost summary
-
-WEB:
-  • web_search          — DuckDuckGo search for current info, prices, news, weather
-  • web_fetch           — fetch and read a specific URL
-
-FILES (safe paths: {safe_paths}):
-  • read_file           — read a file
-  • write_file          — write or append to a file
-
-SELF:
-  • get_status          — system status, connections, model in use
-  • get_playbook_info   — full playbook config
-
-SELF-BUILDING:
-  • propose_connector   — draft connector code for a new service the user wants to connect
-                          (Gmail, Google Calendar, Tesla API, weather, cameras, etc.)
-                          User reviews the generated code in the UI and approves/rejects.
-{connector_info}{user_info}
+{connector_info}{user_info}{boundaries_info}{energy_info}
 
 OPERATING RULES:
 - Always use tools to get real data — never guess sensor values, entity states, or current facts.
@@ -472,7 +478,48 @@ OPERATING RULES:
                 return resolved
         return None
 
+    # Tool name → domain mapping for role enforcement
+    _TOOL_DOMAINS: dict[str, str] = {
+        "get_sensor": "energy", "get_all_sensors": "energy", "get_ha_entity": "home",
+        "list_ha_entities": "home", "get_ha_history": "energy", "ha_service_call": "home",
+        "send_notification": "home", "search_memory": "memory", "remember": "memory",
+        "recall": "memory", "get_cost_summary": "admin", "web_search": "web",
+        "web_fetch": "web", "read_file": "files", "write_file": "files",
+        "get_status": "admin", "get_playbook_info": "admin", "propose_connector": "admin",
+    }
+
+    def _check_user_permission(self, tool_name: str, user_id: str) -> Optional[str]:
+        """Return an error string if the user lacks permission, else None."""
+        if not self.playbook:
+            return None
+        user = self.playbook.get_user(user_id)
+        if not user:
+            return None  # unknown users get default access
+        if user.role.value == "owner":
+            return None  # owner can do everything
+
+        # Check tool domain against user's permitted_domains
+        permitted = user.permitted_domains
+        if "*" in permitted:
+            return None
+
+        # Determine domain: check static map first, then connector-provided tools
+        domain = self._TOOL_DOMAINS.get(tool_name)
+        if not domain and self.registry and self.registry.has_tool(tool_name):
+            # Connector tools: use the connector_id as domain (e.g. "ha", "gmail")
+            connector_id = self.registry._tool_map.get(tool_name, "")
+            domain = connector_id or "external"
+
+        if domain and domain not in permitted:
+            return f"Permission denied: your role ({user.role.value}) doesn't have access to '{domain}' tools."
+        return None
+
     def _execute_tool(self, name: str, inp: dict, user_id: str = "default") -> str:
+
+        # ── Role enforcement ───────────────────────────────────────────
+        perm_error = self._check_user_permission(name, user_id)
+        if perm_error:
+            return perm_error
 
         # ── Connector Registry (new architecture) ──────────────────────
         # Try the registry first — it handles all connector-provided tools.
@@ -791,12 +838,15 @@ OPERATING RULES:
                 f"Owner:         {pb.owner}",
                 f"Timezone:      {pb.timezone}",
                 f"Sensors:       {list(pb.sensors.keys())}",
-                f"Actions:       {[a.id for a in pb.actions]}",
-                f"Boundaries:    {[b.id for b in pb.boundaries]}",
+                f"Actions:       {[a.id for a in pb.actions]} ({len(pb.actions)} defined)",
+                f"Boundaries:    {[b.id for b in pb.boundaries]} ({len(pb.boundaries)} defined)",
                 f"Scheduled ops: {[s.id for s in pb.scheduled_ops]}",
                 f"Users:         {[u.name for u in pb.users]}",
                 f"Connectors:    {[c.id for c in pb.connectors]}",
             ]
+            if pb.energy and pb.energy.peak_rate > 0:
+                e = pb.energy
+                lines.append(f"Energy:        peak=${e.peak_rate}/kWh off-peak=${e.offpeak_rate}/kWh feed-in=${e.feed_in_rate}/kWh solar={e.solar_capacity_kw}kW")
             return "\n".join(lines)
 
         return f"Unknown tool: {name}"
@@ -972,7 +1022,7 @@ class {class_name}(BaseConnector):
                 config,
                 messages=loop_messages,
                 system=system_prompt,
-                tools=TOOLS,
+                tools=self._get_tools(),
             )
 
             if response.stop_reason == "end_turn":
@@ -1056,7 +1106,7 @@ class {class_name}(BaseConnector):
                 max_tokens=config.max_tokens,
                 messages=loop_messages,
                 system=system_prompt,
-                tools=TOOLS,
+                tools=self._get_tools(),
             ) as stream:
                 for chunk in stream.text_stream:
                     full_text += chunk
