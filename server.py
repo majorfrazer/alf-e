@@ -375,6 +375,39 @@ async def request_restart():
     return {"status": "restart_requested"}
 
 
+# ── Memory Export (Claude Code bridge) ───────────────────────────────────────
+
+@app.get("/api/memory/export")
+async def memory_export():
+    """Export Alf-E's full memory for Claude Code session inheritance.
+
+    Claude Code calls this at session start (via a hook in .claude/settings.json)
+    to load everything Alf-E has learned from Fraser's conversations:
+      - All stored context facts (domain/key/value)
+      - Recent conversation topics (last 7 days)
+      - User profiles
+      - 30-day cost summary
+
+    This is the bridge between Alf-E's chat memory and Claude Code sessions.
+    """
+    if not memory:
+        return {"error": "Memory not initialised"}
+    return memory.export_for_claude_code()
+
+
+@app.post("/api/memory/context")
+async def set_memory_context(domain: str, key: str, value: str, source: str = "claude_code"):
+    """Write a context fact into Alf-E's memory from Claude Code.
+
+    This is the reverse bridge — Claude Code can push facts it discovers
+    (e.g. from reading code or git history) into Alf-E so it knows about them.
+    """
+    if not memory:
+        raise HTTPException(status_code=503, detail="Memory not initialised")
+    memory.set_context(domain=domain, key=key, value=value, source=source)
+    return {"status": "stored", "domain": domain, "key": key}
+
+
 # ── Sensor Endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/api/sensors")

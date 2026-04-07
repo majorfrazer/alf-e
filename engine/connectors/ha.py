@@ -233,6 +233,120 @@ class HAConnector(BaseConnector):
                 input_schema={"type": "object", "properties": {}},
                 approval_tier="autonomous",
             ),
+
+            # ── HA Config (read/write automations, scripts, config files) ──
+            ToolDefinition(
+                name="ha_list_automations",
+                description=(
+                    "List all automations in Home Assistant with their ID, alias, and enabled state. "
+                    "Use before ha_read_automation to find the right automation ID."
+                ),
+                input_schema={"type": "object", "properties": {}},
+                approval_tier="autonomous",
+            ),
+            ToolDefinition(
+                name="ha_read_automation",
+                description=(
+                    "Read the full configuration of a Home Assistant automation by its ID. "
+                    "Returns the automation as a YAML-like dict — triggers, conditions, actions. "
+                    "Use this before proposing a change so you understand the current logic."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "automation_id": {
+                            "type": "string",
+                            "description": "HA automation ID (e.g. 'automation.pool_pump_schedule')",
+                        },
+                    },
+                    "required": ["automation_id"],
+                },
+                approval_tier="autonomous",
+            ),
+            ToolDefinition(
+                name="ha_write_automation",
+                description=(
+                    "Create or update a Home Assistant automation. "
+                    "Fraser must approve before this executes — Alf-E explains the change, "
+                    "shows the before/after, and waits for confirmation. "
+                    "Use this when Fraser asks to improve or fix an automation."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "automation_id": {
+                            "type": "string",
+                            "description": "Automation ID to update, or new ID to create",
+                        },
+                        "config": {
+                            "type": "object",
+                            "description": (
+                                "Full automation config dict: alias, trigger, condition, action. "
+                                "Must follow HA automation schema."
+                            ),
+                        },
+                    },
+                    "required": ["automation_id", "config"],
+                },
+                approval_tier="confirm",
+            ),
+            ToolDefinition(
+                name="ha_delete_automation",
+                description="Delete a Home Assistant automation by ID. Requires confirmation.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "automation_id": {"type": "string"},
+                    },
+                    "required": ["automation_id"],
+                },
+                approval_tier="confirm",
+            ),
+            ToolDefinition(
+                name="ha_reload_automations",
+                description=(
+                    "Reload all HA automations without restarting Home Assistant. "
+                    "Run this after writing or deleting an automation for changes to take effect."
+                ),
+                input_schema={"type": "object", "properties": {}},
+                approval_tier="notify",
+            ),
+            ToolDefinition(
+                name="ha_list_scripts",
+                description="List all scripts in Home Assistant with their ID and alias.",
+                input_schema={"type": "object", "properties": {}},
+                approval_tier="autonomous",
+            ),
+            ToolDefinition(
+                name="ha_get_config",
+                description=(
+                    "Get HA core configuration: location, unit system, version, components loaded. "
+                    "Read-only — safe to call any time."
+                ),
+                input_schema={"type": "object", "properties": {}},
+                approval_tier="autonomous",
+            ),
+            ToolDefinition(
+                name="ha_get_logbook",
+                description=(
+                    "Get recent logbook entries from HA — who triggered what and when. "
+                    "Useful for debugging automations or understanding what happened overnight."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "hours": {
+                            "type": "integer",
+                            "description": "How many hours of logbook to fetch (default 12, max 48)",
+                        },
+                        "entity_id": {
+                            "type": "string",
+                            "description": "Optional: filter logbook to a specific entity",
+                        },
+                    },
+                },
+                approval_tier="autonomous",
+            ),
         ]
 
     # ── Tool Execution ────────────────────────────────────────────────────
@@ -308,6 +422,34 @@ class HAConnector(BaseConnector):
             elif name == "ha_health_check":
                 ok = self.health_check()
                 return ConnectorResult(success=True, content=f"HA reachable: {ok}")
+
+            # ── HA Config tools ───────────────────────────────────────────
+            elif name == "ha_list_automations":
+                return self._list_automations()
+
+            elif name == "ha_read_automation":
+                return self._read_automation(inp["automation_id"])
+
+            elif name == "ha_write_automation":
+                return self._write_automation(inp["automation_id"], inp["config"])
+
+            elif name == "ha_delete_automation":
+                return self._delete_automation(inp["automation_id"])
+
+            elif name == "ha_reload_automations":
+                return self._reload_automations()
+
+            elif name == "ha_list_scripts":
+                return self._list_scripts()
+
+            elif name == "ha_get_config":
+                return self._get_ha_config()
+
+            elif name == "ha_get_logbook":
+                return self._get_logbook(
+                    hours=inp.get("hours", 12),
+                    entity_id=inp.get("entity_id"),
+                )
 
             else:
                 return ConnectorResult(success=False, content=f"Unknown tool: {name}")
@@ -477,6 +619,168 @@ class HAConnector(BaseConnector):
         except Exception as e:
             logger.error(f"Notification error: {e}")
             return False
+
+    # ── HA Config API Methods ─────────────────────────────────────────────
+
+    def _list_automations(self) -> ConnectorResult:
+        try:
+            resp = httpx.get(
+                f"{self._base_url}/api/config/automation/config",
+                headers=self._headers,
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return ConnectorResult(success=False, content=f"HA returned {resp.status_code}: {resp.text[:200]}")
+            automations = resp.json()
+            if not automations:
+                return ConnectorResult(success=True, content="No automations found.")
+            lines = [f"Found {len(automations)} automations:"]
+            for a in automations:
+                aid     = a.get("id", "?")
+                alias   = a.get("alias", "(no alias)")
+                enabled = "enabled" if a.get("mode") != "disabled" else "disabled"
+                lines.append(f"  {aid}  [{enabled}]  {alias}")
+            return ConnectorResult(success=True, content="\n".join(lines))
+        except Exception as e:
+            return ConnectorResult(success=False, content=f"Error listing automations: {e}")
+
+    def _read_automation(self, automation_id: str) -> ConnectorResult:
+        try:
+            resp = httpx.get(
+                f"{self._base_url}/api/config/automation/config/{automation_id}",
+                headers=self._headers,
+                timeout=10,
+            )
+            if resp.status_code == 404:
+                return ConnectorResult(success=False, content=f"Automation not found: {automation_id}")
+            if resp.status_code != 200:
+                return ConnectorResult(success=False, content=f"HA returned {resp.status_code}")
+            import json as _json
+            data = resp.json()
+            return ConnectorResult(
+                success=True,
+                content=f"Automation {automation_id}:\n{_json.dumps(data, indent=2)}",
+            )
+        except Exception as e:
+            return ConnectorResult(success=False, content=f"Error reading automation: {e}")
+
+    def _write_automation(self, automation_id: str, config: dict) -> ConnectorResult:
+        try:
+            resp = httpx.post(
+                f"{self._base_url}/api/config/automation/config/{automation_id}",
+                headers=self._headers,
+                json=config,
+                timeout=15,
+            )
+            if resp.status_code in (200, 201):
+                logger.info(f"Automation written: {automation_id}")
+                return ConnectorResult(
+                    success=True,
+                    content=(
+                        f"Automation '{automation_id}' saved. "
+                        "Run ha_reload_automations for changes to take effect."
+                    ),
+                )
+            return ConnectorResult(
+                success=False,
+                content=f"HA returned {resp.status_code}: {resp.text[:300]}",
+            )
+        except Exception as e:
+            return ConnectorResult(success=False, content=f"Error writing automation: {e}")
+
+    def _delete_automation(self, automation_id: str) -> ConnectorResult:
+        try:
+            resp = httpx.delete(
+                f"{self._base_url}/api/config/automation/config/{automation_id}",
+                headers=self._headers,
+                timeout=10,
+            )
+            if resp.status_code in (200, 204):
+                return ConnectorResult(success=True, content=f"Automation '{automation_id}' deleted.")
+            return ConnectorResult(success=False, content=f"HA returned {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            return ConnectorResult(success=False, content=f"Error deleting automation: {e}")
+
+    def _reload_automations(self) -> ConnectorResult:
+        ok = self._call_service("automation", "reload")
+        return ConnectorResult(
+            success=ok,
+            content="Automations reloaded — changes are now live." if ok else "Reload failed.",
+        )
+
+    def _list_scripts(self) -> ConnectorResult:
+        try:
+            resp = httpx.get(
+                f"{self._base_url}/api/config/script/config",
+                headers=self._headers,
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return ConnectorResult(success=False, content=f"HA returned {resp.status_code}")
+            scripts = resp.json()
+            if not scripts:
+                return ConnectorResult(success=True, content="No scripts found.")
+            lines = [f"Found {len(scripts)} scripts:"]
+            for sid, s in (scripts.items() if isinstance(scripts, dict) else enumerate(scripts)):
+                alias = s.get("alias", "(no alias)") if isinstance(s, dict) else str(s)
+                lines.append(f"  {sid}  {alias}")
+            return ConnectorResult(success=True, content="\n".join(lines))
+        except Exception as e:
+            return ConnectorResult(success=False, content=f"Error listing scripts: {e}")
+
+    def _get_ha_config(self) -> ConnectorResult:
+        try:
+            resp = httpx.get(
+                f"{self._base_url}/api/config",
+                headers=self._headers,
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return ConnectorResult(success=False, content=f"HA returned {resp.status_code}")
+            cfg = resp.json()
+            lines = [
+                f"HA Version:    {cfg.get('version', 'unknown')}",
+                f"Location:      {cfg.get('location_name', 'unknown')}",
+                f"Latitude:      {cfg.get('latitude', '?')}",
+                f"Longitude:     {cfg.get('longitude', '?')}",
+                f"Timezone:      {cfg.get('time_zone', 'unknown')}",
+                f"Unit system:   {cfg.get('unit_system', {}).get('length', 'unknown')}",
+                f"Currency:      {cfg.get('currency', 'unknown')}",
+                f"Components:    {len(cfg.get('components', []))} loaded",
+                f"Config dir:    {cfg.get('config_dir', 'unknown')}",
+            ]
+            return ConnectorResult(success=True, content="\n".join(lines))
+        except Exception as e:
+            return ConnectorResult(success=False, content=f"Error fetching HA config: {e}")
+
+    def _get_logbook(self, hours: int = 12, entity_id: str = None) -> ConnectorResult:
+        hours = min(int(hours), 48)
+        start = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        params = {"entity": entity_id} if entity_id else {}
+        try:
+            resp = httpx.get(
+                f"{self._base_url}/api/logbook/{start}",
+                headers=self._headers,
+                params=params,
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                return ConnectorResult(success=False, content=f"HA returned {resp.status_code}")
+            entries = resp.json()
+            if not entries:
+                return ConnectorResult(success=True, content=f"No logbook entries in the last {hours}h.")
+            # Cap to most recent 50 entries to avoid flooding context
+            entries = entries[-50:] if len(entries) > 50 else entries
+            lines = [f"Logbook (last {hours}h, {len(entries)} entries):"]
+            for e in entries:
+                when   = e.get("when", "?")[:19].replace("T", " ")
+                who    = e.get("name", e.get("entity_id", "?"))
+                what   = e.get("message", e.get("state", "?"))
+                domain = e.get("domain", "")
+                lines.append(f"  {when}  {who} ({domain}): {what}")
+            return ConnectorResult(success=True, content="\n".join(lines))
+        except Exception as e:
+            return ConnectorResult(success=False, content=f"Error fetching logbook: {e}")
 
     # ── Legacy compatibility (for code that still imports ha_connector) ───
 

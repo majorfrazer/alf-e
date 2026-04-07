@@ -205,6 +205,70 @@ class Memory:
         conn.commit()
         conn.close()
 
+    # ── Memory Export (for Claude Code bridge) ───────────────────────────
+
+    def export_for_claude_code(self) -> dict:
+        """Export everything useful for a Claude Code session to inherit.
+
+        Returns a structured dict covering:
+          - context: all stored facts (domain/key/value)
+          - recent_topics: summary of what was discussed in last 7 days
+          - users: active users and their message counts
+          - cost_30d: spend summary
+
+        This is what /api/memory/export returns. Claude Code reads it at
+        session start so it inherits Alf-E's knowledge of the household.
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        # All stored context facts
+        context_rows = conn.execute(
+            "SELECT domain, key, value, source, timestamp FROM context ORDER BY domain, key"
+        ).fetchall()
+        context = [
+            {"domain": r[0], "key": r[1], "value": r[2], "source": r[3], "updated": r[4]}
+            for r in context_rows
+        ]
+
+        # Recent conversation topics — last 50 user messages (7-day window)
+        recent_rows = conn.execute(
+            """SELECT user_id, content, timestamp FROM messages
+               WHERE role = 'user'
+               AND timestamp > datetime('now', '-7 days')
+               ORDER BY timestamp DESC LIMIT 50"""
+        ).fetchall()
+        recent_topics = [
+            {"user": r[0], "message": r[1][:200], "at": r[2][:16]}
+            for r in recent_rows
+        ]
+
+        # Active users
+        user_rows = conn.execute(
+            """SELECT user_id, COUNT(*) as msg_count, MAX(timestamp) as last_seen
+               FROM messages GROUP BY user_id ORDER BY last_seen DESC"""
+        ).fetchall()
+        users = [
+            {"user_id": r[0], "messages": r[1], "last_seen": r[2][:16]}
+            for r in user_rows
+        ]
+
+        # Cost summary
+        cost_row = conn.execute(
+            """SELECT COUNT(*), COALESCE(SUM(cost_usd),0)
+               FROM messages WHERE timestamp > datetime('now', '-30 days')"""
+        ).fetchone()
+
+        conn.close()
+
+        return {
+            "exported_at":    datetime.now().isoformat(),
+            "context_facts":  context,
+            "recent_topics":  recent_topics,
+            "users":          users,
+            "cost_30d_usd":   round(cost_row[1], 4),
+            "messages_30d":   cost_row[0],
+        }
+
     # ── Cost Tracking ────────────────────────────────────────────────────
 
     def get_cost_summary(self, days: int = 30) -> dict:
