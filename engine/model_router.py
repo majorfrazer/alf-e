@@ -90,7 +90,11 @@ class ModelRouter:
         """Make a Claude API call."""
         api_key = os.getenv(config.api_key_env, "")
         if not api_key:
-            raise ValueError(f"API key not found in env: {config.api_key_env}")
+            raise ValueError(
+                f"API key not set — check {config.api_key_env} in your environment. "
+                f"On HA Green: set it in the add-on Configuration tab. "
+                f"On N95: set it in .env"
+            )
 
         client = Anthropic(api_key=api_key)
 
