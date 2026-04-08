@@ -11,21 +11,19 @@ Full capability set:
 """
 
 import os
-import json
 import logging
-import httpx
-from pathlib import Path
 from typing import Optional
 from anthropic import Anthropic
 from engine.model_router import ModelRouter
 from engine.memory import Memory
 from engine.playbook_schema import PlaybookConfig, ActionApproval
 
-# Legacy HA connector — kept for backwards compatibility during migration
-try:
-    from engine.ha_connector import HAConnector
-except ImportError:
-    HAConnector = None
+# Tool handlers — each module handles one category
+from engine.tools.memory import handle_search_memory, handle_remember, handle_recall, handle_get_cost_summary
+from engine.tools.web import handle_web_search, handle_web_fetch
+from engine.tools.files import handle_read_file, handle_write_file, safe_path
+from engine.tools.status import handle_get_status, handle_get_playbook_info
+from engine.tools.self_build import handle_propose_connector
 
 # New connector registry — routes tool calls to pluggable connectors
 try:
@@ -343,16 +341,16 @@ class Agent:
     def __init__(
         self,
         router: ModelRouter,
-        ha=None,                    # legacy HAConnector — kept during migration
+        ha=None,                    # legacy HAConnector — only used for server.py sensor endpoints
         memory: Memory = None,
         playbook: PlaybookConfig = None,
-        registry=None,              # ConnectorRegistry — new architecture
+        registry=None,              # ConnectorRegistry — handles all tool execution
     ):
         self.router = router
         self.ha = ha
         self.memory = memory
         self.playbook = playbook
-        self.registry = registry    # ConnectorRegistry or None
+        self.registry = registry
         self.pending_approvals: list[dict] = []
         self.last_model_used: str = ""
 
@@ -360,7 +358,7 @@ class Agent:
 
     def _get_tools(self) -> list[dict]:
         """Return full tool list: core tools + any tools from the connector registry."""
-        all_tools = list(TOOLS)  # core non-connector tools
+        all_tools = list(TOOLS)
         if self.registry:
             all_tools.extend(self.registry.get_anthropic_tools())
         return all_tools
@@ -371,7 +369,6 @@ class Agent:
         for tool in self._get_tools():
             name = tool["name"]
             desc = tool.get("description", "")
-            # Truncate long descriptions for the system prompt
             if len(desc) > 120:
                 desc = desc[:117] + "..."
             lines.append(f"  • {name:30s} — {desc}")
@@ -393,29 +390,18 @@ class Agent:
             if user:
                 user_info = f"\nCurrent user: {user.name} (role: {user.role.value})"
 
-        safe_paths = ""
-        if pb and pb.security.safe_file_roots:
-            safe_paths = ", ".join(pb.security.safe_file_roots)
-        else:
-            safe_paths = "/data/alfe_notes (default)"
-
-        ha_status = "connected" if (self.ha or (self.registry and "ha" in self.registry.connector_ids())) else "NOT connected"
-
         connector_info = ""
         if self.registry and self.registry.connector_ids():
             cids = self.registry.connector_ids()
             connector_info = f"\nLOADED CONNECTORS: {', '.join(cids)} ({self.registry.tool_count()} tools total)"
 
-        # Build dynamic tool docs from all available tools
         tool_docs = self._build_tool_docs()
 
-        # Build boundaries info
         boundaries_info = ""
         if pb and pb.boundaries:
             boundaries_info = "\n\nSAFETY BOUNDARIES (never violate these):\n"
             boundaries_info += "\n".join(f"  • {b.id}: {b.description} (limit: {b.limit} {b.unit})" for b in pb.boundaries)
 
-        # Build energy config info
         energy_info = ""
         if pb and pb.energy and pb.energy.peak_rate > 0:
             e = pb.energy
@@ -462,23 +448,8 @@ OPERATING RULES:
 - Never expose API keys or tokens.
 - Keep responses concise and natural — you're talking to a mate."""
 
-    # ── Tool Execution ─────────────────────────────────────────────────
+    # ── Role Enforcement ───────────────────────────────────────────────
 
-    def _safe_path(self, path: str) -> Optional[Path]:
-        """Return a resolved Path if within allowed roots, else None."""
-        pb = self.playbook
-        safe_roots = pb.security.safe_file_roots if pb else []
-        if not safe_roots:
-            # Default safe path when running as HA add-on
-            safe_roots = ["/data/alfe_notes"]
-
-        resolved = Path(path).resolve()
-        for root in safe_roots:
-            if str(resolved).startswith(str(Path(root).resolve())):
-                return resolved
-        return None
-
-    # Tool name → domain mapping for role enforcement
     _TOOL_DOMAINS: dict[str, str] = {
         "get_sensor": "energy", "get_all_sensors": "energy", "get_ha_entity": "home",
         "list_ha_entities": "home", "get_ha_history": "energy", "ha_service_call": "home",
@@ -494,19 +465,16 @@ OPERATING RULES:
             return None
         user = self.playbook.get_user(user_id)
         if not user:
-            return None  # unknown users get default access
+            return None
         if user.role.value == "owner":
-            return None  # owner can do everything
+            return None
 
-        # Check tool domain against user's permitted_domains
         permitted = user.permitted_domains
         if "*" in permitted:
             return None
 
-        # Determine domain: check static map first, then connector-provided tools
         domain = self._TOOL_DOMAINS.get(tool_name)
         if not domain and self.registry and self.registry.has_tool(tool_name):
-            # Connector tools: use the connector_id as domain (e.g. "ha", "gmail")
             connector_id = self.registry._tool_map.get(tool_name, "")
             domain = connector_id or "external"
 
@@ -514,16 +482,15 @@ OPERATING RULES:
             return f"Permission denied: your role ({user.role.value}) doesn't have access to '{domain}' tools."
         return None
 
-    def _execute_tool(self, name: str, inp: dict, user_id: str = "default") -> str:
+    # ── Tool Dispatch ──────────────────────────────────────────────────
 
-        # ── Role enforcement ───────────────────────────────────────────
+    def _execute_tool(self, name: str, inp: dict, user_id: str = "default") -> str:
+        # Role enforcement
         perm_error = self._check_user_permission(name, user_id)
         if perm_error:
             return perm_error
 
-        # ── Connector Registry (new architecture) ──────────────────────
-        # Try the registry first — it handles all connector-provided tools.
-        # Falls through to legacy handlers if not handled by registry.
+        # Connector Registry — handles HA, Gmail, and all connector-provided tools
         if self.registry and self.registry.has_tool(name):
             result = self.registry.execute(name, inp, user_id)
             if result.requires_approval:
@@ -531,459 +498,42 @@ OPERATING RULES:
                 return f"Queued for approval: {name}"
             return result.content
 
-        # ── Self-building: propose_connector ───────────────────────────
+        # Self-building
         if name == "propose_connector":
-            return self._handle_propose_connector(inp, user_id)
+            return handle_propose_connector(inp, user_id, self.pending_approvals)
 
-        # ── HA: pre-configured sensors (legacy) ───────────────────────
-        if name == "get_sensor":
-            sensor_name = inp["sensor_name"]
-            if not self.playbook or sensor_name not in self.playbook.sensors:
-                available = list(self.playbook.sensors.keys()) if self.playbook else []
-                return f"Unknown sensor '{sensor_name}'. Available: {available}"
-            if not self.ha:
-                return "Home Assistant is not connected."
-            entity_id = self.playbook.sensors[sensor_name]
-            value = self.ha.get_numeric_value(entity_id)
-            return f"{sensor_name} = {value}" if value is not None else f"{sensor_name} is unavailable."
-
-        if name == "get_all_sensors":
-            if not self.playbook or not self.playbook.sensors:
-                return "No sensors configured in playbook."
-            if not self.ha:
-                return "Home Assistant is not connected."
-            data = self.ha.get_sensor_batch(self.playbook.sensors)
-            lines = [f"  {k}: {v if v is not None else 'unavailable'}" for k, v in data.items()]
-            return "\n".join(lines)
-
-        # ── HA: full entity access ─────────────────────────────────────
-        if name == "get_ha_entity":
-            if not self.ha:
-                return "Home Assistant is not connected."
-            entity = self.ha.get_entity_full(inp["entity_id"])
-            if not entity:
-                return f"Entity '{inp['entity_id']}' not found or unavailable."
-            attrs = entity.get("attributes", {})
-            attr_str = "\n".join(f"    {k}: {v}" for k, v in attrs.items()) if attrs else "    (none)"
-            return (
-                f"entity_id:    {entity['entity_id']}\n"
-                f"state:        {entity['state']}\n"
-                f"last_changed: {entity.get('last_changed', 'unknown')}\n"
-                f"attributes:\n{attr_str}"
-            )
-
-        if name == "list_ha_entities":
-            if not self.ha:
-                return "Home Assistant is not connected."
-            domain = inp.get("domain")
-            entities = self.ha.list_entities(domain)
-            if not entities:
-                return f"No entities found{f' for domain {domain}' if domain else ''}."
-            lines = [f"  {e['entity_id']} [{e['state']}] — {e['friendly_name']}" for e in entities]
-            summary = f"{len(entities)} entities{f' in domain {domain}' if domain else ''}:\n"
-            # Cap output to avoid flooding context
-            if len(lines) > 60:
-                return summary + "\n".join(lines[:60]) + f"\n  ... and {len(lines)-60} more (use domain filter to narrow down)"
-            return summary + "\n".join(lines)
-
-        if name == "get_ha_history":
-            if not self.ha:
-                return "Home Assistant is not connected."
-            entity_id = inp["entity_id"]
-            hours = min(int(inp.get("hours", 24)), 168)
-            stats = self.ha.get_history_stats(entity_id, hours)
-            if "error" in stats:
-                return f"History for {entity_id}: {stats['error']}"
-            return (
-                f"History for {entity_id} (last {hours}h):\n"
-                f"  samples: {stats['samples']}\n"
-                f"  min:     {stats['min']}\n"
-                f"  max:     {stats['max']}\n"
-                f"  avg:     {stats['avg']}\n"
-                f"  first:   {stats['first']}\n"
-                f"  last:    {stats['last']}"
-            )
-
-        # ── HA: service call ───────────────────────────────────────────
-        if name == "ha_service_call":
-            if not self.ha:
-                return "Home Assistant is not connected."
-            entity_id = inp["entity_id"]
-            domain    = inp["domain"]
-            service   = inp["service"]
-            data      = inp.get("data", {})
-
-            approval_tier = ActionApproval.confirm
-            if self.playbook:
-                for action in self.playbook.actions:
-                    entity_match = (
-                        action.entity == entity_id
-                        or action.entity_pattern == "*"
-                        or action.entity_pattern == entity_id.split(".")[0]
-                    )
-                    if entity_match:
-                        approval_tier = action.approval
-                        break
-
-            if approval_tier == ActionApproval.autonomous:
-                success = self.ha.call_service(domain, service, entity_id, data or None)
-                return f"Done: {domain}.{service} on {entity_id} ({'ok' if success else 'failed'})."
-
-            self.pending_approvals.append({
-                "type": "ha_service_call",
-                "domain": domain,
-                "service": service,
-                "entity_id": entity_id,
-                "data": data,
-            })
-            return f"Queued for approval: {domain}.{service} on {entity_id}."
-
-        # ── HA: notification ───────────────────────────────────────────
-        if name == "send_notification":
-            if not self.ha:
-                return "Home Assistant is not connected — cannot send notification."
-            success = self.ha.send_notification(
-                message=inp["message"],
-                title=inp.get("title", "Alf-E"),
-                target=inp.get("target"),
-            )
-            return "Notification sent." if success else "Notification failed — check HA companion app is installed."
-
-        # ── Memory: search ─────────────────────────────────────────────
+        # Memory tools
         if name == "search_memory":
-            if not self.memory:
-                return "Memory not available."
-            query = inp["query"].lower()
-            limit = int(inp.get("limit", 10))
-            uid   = inp.get("user_id", user_id)
-            all_msgs = self.memory.load_messages(user_id=uid, limit=200)
-            matches = [
-                m for m in all_msgs
-                if query in m.get("content", "").lower()
-            ][:limit]
-            if not matches:
-                return f"No past messages found matching '{inp['query']}'."
-            lines = [f"  [{m['role']}]: {m['content'][:200]}" for m in matches]
-            return f"Found {len(matches)} matching message(s):\n" + "\n".join(lines)
-
-        # ── Memory: remember ───────────────────────────────────────────
+            return handle_search_memory(inp, self.memory, user_id)
         if name == "remember":
-            if not self.memory:
-                return "Memory not available."
-            self.memory.set_context(
-                domain=inp["domain"],
-                key=inp["key"],
-                value=inp["value"],
-                source=f"user:{user_id}",
-            )
-            return f"Remembered: [{inp['domain']}] {inp['key']} = {inp['value']}"
-
-        # ── Memory: recall ─────────────────────────────────────────────
+            return handle_remember(inp, self.memory, user_id)
         if name == "recall":
-            if not self.memory:
-                return "Memory not available."
-            domain = inp.get("domain")
-            facts  = self.memory.get_context(domain=domain)
-            if not facts:
-                return f"No stored facts found{f' for domain {domain}' if domain else ''}."
-            lines = [f"  [{f['domain']}] {f['key']}: {f['value']}" for f in facts]
-            return f"{len(facts)} stored fact(s):\n" + "\n".join(lines)
-
-        # ── Memory: cost summary ───────────────────────────────────────
+            return handle_recall(inp, self.memory)
         if name == "get_cost_summary":
-            if not self.memory:
-                return "Memory not available."
-            days    = int(inp.get("days", 30))
-            summary = self.memory.get_cost_summary(days)
-            return (
-                f"Last {days} days:\n"
-                f"  messages:      {summary['messages']}\n"
-                f"  tokens in:     {summary['tokens_input']:,}\n"
-                f"  tokens out:    {summary['tokens_output']:,}\n"
-                f"  cost (USD):    ${summary['cost_usd']:.4f}"
-            )
+            return handle_get_cost_summary(inp, self.memory)
 
-        # ── Web: search ────────────────────────────────────────────────
+        # Web tools
         if name == "web_search":
-            query       = inp["query"]
-            max_results = int(inp.get("max_results", 5))
-            try:
-                # DuckDuckGo instant answer API (no key required)
-                resp = httpx.get(
-                    "https://api.duckduckgo.com/",
-                    params={"q": query, "format": "json", "no_redirect": "1", "no_html": "1"},
-                    timeout=10,
-                    headers={"User-Agent": "Alf-E/2.0"},
-                )
-                data = resp.json()
-
-                results = []
-
-                # Abstract (featured snippet)
-                if data.get("Abstract"):
-                    results.append({
-                        "title":   data.get("Heading", "Featured"),
-                        "url":     data.get("AbstractURL", ""),
-                        "snippet": data["Abstract"],
-                    })
-
-                # Related topics
-                for topic in data.get("RelatedTopics", [])[:max_results]:
-                    if isinstance(topic, dict) and topic.get("Text"):
-                        results.append({
-                            "title":   topic.get("Text", "")[:80],
-                            "url":     topic.get("FirstURL", ""),
-                            "snippet": topic.get("Text", ""),
-                        })
-                    if len(results) >= max_results:
-                        break
-
-                if not results:
-                    return f"No results found for '{query}'. Try web_fetch with a specific URL instead."
-
-                lines = []
-                for i, r in enumerate(results[:max_results], 1):
-                    lines.append(f"{i}. {r['title']}\n   {r['url']}\n   {r['snippet'][:200]}")
-                return f"Search results for '{query}':\n\n" + "\n\n".join(lines)
-
-            except Exception as e:
-                logger.error(f"Web search error: {e}")
-                return f"Web search failed: {e}"
-
-        # ── Web: fetch ─────────────────────────────────────────────────
+            return handle_web_search(inp)
         if name == "web_fetch":
-            url       = inp["url"]
-            max_chars = int(inp.get("max_chars", 4000))
-            try:
-                resp = httpx.get(
-                    url,
-                    timeout=15,
-                    follow_redirects=True,
-                    headers={"User-Agent": "Alf-E/2.0"},
-                )
-                resp.raise_for_status()
+            return handle_web_fetch(inp)
 
-                # Strip HTML tags simply
-                import re
-                content = resp.text
-                content = re.sub(r"<script[^>]*>.*?</script>", " ", content, flags=re.DOTALL | re.IGNORECASE)
-                content = re.sub(r"<style[^>]*>.*?</style>",  " ", content, flags=re.DOTALL | re.IGNORECASE)
-                content = re.sub(r"<[^>]+>", " ", content)
-                content = re.sub(r"\s+", " ", content).strip()
+        # File tools
+        if name in ("read_file", "write_file"):
+            safe_roots = self.playbook.security.safe_file_roots if self.playbook else []
+            if name == "read_file":
+                return handle_read_file(inp, safe_roots)
+            return handle_write_file(inp, safe_roots)
 
-                if len(content) > max_chars:
-                    content = content[:max_chars] + f"\n\n[truncated — {len(content)-max_chars} more chars]"
-
-                return f"Content from {url}:\n\n{content}"
-
-            except Exception as e:
-                logger.error(f"Web fetch error: {e}")
-                return f"Failed to fetch {url}: {e}"
-
-        # ── Files: read ────────────────────────────────────────────────
-        if name == "read_file":
-            path = self._safe_path(inp["path"])
-            if not path:
-                return f"Access denied: '{inp['path']}' is outside safe paths."
-            if not path.exists():
-                return f"File not found: {inp['path']}"
-            try:
-                content = path.read_text(encoding="utf-8")
-                return f"Contents of {path}:\n\n{content}"
-            except Exception as e:
-                return f"Error reading file: {e}"
-
-        # ── Files: write ───────────────────────────────────────────────
-        if name == "write_file":
-            path = self._safe_path(inp["path"])
-            if not path:
-                return f"Access denied: '{inp['path']}' is outside safe paths."
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                mode = "a" if inp.get("append") else "w"
-                with open(path, mode, encoding="utf-8") as f:
-                    f.write(inp["content"])
-                action = "Appended to" if inp.get("append") else "Written"
-                return f"{action} {path} ({len(inp['content'])} chars)."
-            except Exception as e:
-                return f"Error writing file: {e}"
-
-        # ── Self: status ───────────────────────────────────────────────
+        # Status tools
         if name == "get_status":
-            pb = self.playbook
-            cost = self.memory.get_cost_summary(30) if self.memory else {}
-            registry_info = (
-                f"Registry:    {self.registry.connector_ids()} ({self.registry.tool_count()} tools)"
-                if self.registry else "Registry:    not loaded"
-            )
-            lines = [
-                f"Playbook:    {pb.name} v{pb.version}" if pb else "Playbook:    none",
-                f"HA:          {'connected' if self.ha else 'not connected'}",
-                registry_info,
-                f"Model:       {self.last_model_used or 'not yet called'}",
-                f"Messages:    {self.memory.get_message_count() if self.memory else 0}",
-                f"Cost (30d):  ${cost.get('cost_usd', 0):.4f}",
-                f"Providers:   {list(pb.llm.keys()) if pb else []}",
-                f"Tools:       {len(self._get_tools())} available",
-            ]
-            return "\n".join(lines)
-
+            return handle_get_status(self)
         if name == "get_playbook_info":
-            if not self.playbook:
-                return "No playbook loaded."
-            pb = self.playbook
-            lines = [
-                f"Name:          {pb.name}",
-                f"Version:       {pb.version}",
-                f"Owner:         {pb.owner}",
-                f"Timezone:      {pb.timezone}",
-                f"Sensors:       {list(pb.sensors.keys())}",
-                f"Actions:       {[a.id for a in pb.actions]} ({len(pb.actions)} defined)",
-                f"Boundaries:    {[b.id for b in pb.boundaries]} ({len(pb.boundaries)} defined)",
-                f"Scheduled ops: {[s.id for s in pb.scheduled_ops]}",
-                f"Users:         {[u.name for u in pb.users]}",
-                f"Connectors:    {[c.id for c in pb.connectors]}",
-            ]
-            if pb.energy and pb.energy.peak_rate > 0:
-                e = pb.energy
-                lines.append(f"Energy:        peak=${e.peak_rate}/kWh off-peak=${e.offpeak_rate}/kWh feed-in=${e.feed_in_rate}/kWh solar={e.solar_capacity_kw}kW")
-            return "\n".join(lines)
+            return handle_get_playbook_info(self.playbook)
 
         return f"Unknown tool: {name}"
 
-    # ── Self-building: propose connector ────────────────────────────────
-
-    def _handle_propose_connector(self, inp: dict, user_id: str) -> str:
-        """Generate a BaseConnector subclass scaffold and queue it as a code proposal."""
-        connector_id   = inp["connector_id"]
-        description    = inp["description"]
-        connector_type = inp.get("connector_type", "external_service")
-        auth_method    = inp.get("auth_method", "api_key")
-        env_vars       = inp.get("env_vars", [f"{connector_id.upper()}_API_KEY"])
-        tools_spec     = inp.get("tools", [])
-
-        class_name = "".join(w.capitalize() for w in connector_id.split("_")) + "Connector"
-
-        # Build tool definitions
-        tool_defs = []
-        tool_handlers = []
-        for t in tools_spec:
-            tname = t.get("name", f"{connector_id}_action")
-            tdesc = t.get("description", "")
-            params = t.get("params", [])
-            props = {p: {"type": "string"} for p in params}
-            req = json.dumps(params)
-            tool_defs.append(f"""            ToolDefinition(
-                name="{tname}",
-                description="{tdesc}",
-                input_schema={{
-                    "type": "object",
-                    "properties": {json.dumps(props)},
-                    "required": {req},
-                }},
-                approval_tier="autonomous",
-            ),""")
-            tool_handlers.append(f"""            elif name == "{tname}":
-                # TODO: implement {tname}
-                return ConnectorResult(success=False, content="Not yet implemented: {tname}")""")
-
-        tools_block = "\n".join(tool_defs) if tool_defs else f"""            ToolDefinition(
-                name="{connector_id}_status",
-                description="Get the status of the {connector_id} connection.",
-                input_schema={{"type": "object", "properties": {{}}}},
-                approval_tier="autonomous",
-            ),"""
-
-        handlers_block = "\n".join(tool_handlers) if tool_handlers else f"""            elif name == "{connector_id}_status":
-                return ConnectorResult(success=True, content="Connected to {connector_id}.")"""
-
-        env_inits = "\n".join(
-            f'        self._{v.lower()} = self._env("{v}") or ""'
-            for v in env_vars
-        )
-
-        env_check = " and ".join(f"self._{v.lower()}" for v in env_vars) if env_vars else "True"
-
-        code = f'''"""
-Alf-E {connector_id} connector — auto-generated scaffold.
-Generated by Alf-E self-building loop. Fill in TODO sections before approving.
-
-Auth: {auth_method}
-Env vars required: {", ".join(env_vars)}
-"""
-
-import logging
-from engine.connectors.base import BaseConnector, ToolDefinition, ConnectorResult
-
-logger = logging.getLogger("alfe.connector.{connector_id}")
-
-
-class {class_name}(BaseConnector):
-    """{ description }"""
-
-    connector_id   = "{connector_id}"
-    connector_type = "{connector_type}"
-    description    = "{description}"
-
-    def __init__(self, config: dict):
-        super().__init__(config)
-{env_inits}
-
-    def connect(self) -> bool:
-        if not ({env_check}):
-            logger.error("{connector_id}: missing required environment variables")
-            return False
-        # TODO: test the connection (e.g. make a lightweight API call)
-        logger.info("{connector_id} connector connected.")
-        return True
-
-    def disconnect(self) -> None:
-        self.connected = False
-
-    def health_check(self) -> bool:
-        # TODO: implement a lightweight health check
-        return self.connected
-
-    def get_tools(self) -> list[ToolDefinition]:
-        return [
-{tools_block}
-        ]
-
-    def execute_tool(self, name: str, inp: dict, user_id: str = "fraser") -> ConnectorResult:
-        try:
-            if False:
-                pass
-{handlers_block}
-            else:
-                return ConnectorResult(success=False, content=f"Unknown tool: {{name}}")
-        except Exception as e:
-            logger.error(f"{connector_id}.execute_tool({{name}}) error: {{e}}")
-            return ConnectorResult(success=False, content=f"Error: {{e}}")
-'''
-
-        proposal = {
-            "type":         "code_proposal",
-            "connector_id": connector_id,
-            "class_name":   class_name,
-            "description":  description,
-            "file_path":    f"engine/connectors/{connector_id}.py",
-            "code":         code,
-            "proposed_by":  user_id,
-        }
-        self.pending_approvals.append(proposal)
-
-        tool_names = [t.get("name", "?") for t in tools_spec] if tools_spec else [f"{connector_id}_status"]
-        return (
-            f"Draft connector ready for review!\n\n"
-            f"  File:    engine/connectors/{connector_id}.py\n"
-            f"  Class:   {class_name}\n"
-            f"  Tools:   {', '.join(tool_names)}\n"
-            f"  Auth:    {auth_method}\n"
-            f"  Env:     {', '.join(env_vars)}\n\n"
-            f"The code is queued — approve it in the UI to write the file, commit, and reload."
-        )
-
-    # ── Chat (non-streaming) ───────────────────────────────────────────
+    # ── Chat (non-streaming) ──────────────────────────────────────────
 
     def chat(
         self,
@@ -1007,11 +557,19 @@ class {class_name}(BaseConnector):
         config_name, config = self.router.route(last_user_msg)
         self.last_model_used = config.model
 
-        if config.provider.value != "anthropic":
+        if config.provider.value == "google":
             try:
                 return self.router.call_google(config, messages, system_prompt)
             except Exception as e:
                 logger.error(f"Google call failed: {e}, falling back to default")
+                config_name, config = self.router._pick_config("default")
+                self.last_model_used = config.model
+
+        if config.provider.value == "ollama":
+            try:
+                return self.router.call_ollama(config, messages, system_prompt)
+            except Exception as e:
+                logger.error(f"Ollama call failed: {e}, falling back to default")
                 config_name, config = self.router._pick_config("default")
                 self.last_model_used = config.model
 
@@ -1056,7 +614,7 @@ class {class_name}(BaseConnector):
 
         return "I hit my thinking limit — try a more focused question."
 
-    # ── Chat (streaming) ───────────────────────────────────────────────
+    # ── Chat (streaming) ──────────────────────────────────────────────
 
     def stream_chat(
         self,
@@ -1080,13 +638,23 @@ class {class_name}(BaseConnector):
         config_name, config = self.router.route(last_user_msg)
         self.last_model_used = config.model
 
-        if config.provider.value != "anthropic":
+        if config.provider.value == "google":
             try:
                 text = self.router.call_google(config, messages, system_prompt)
                 yield ("token", text)
                 return
             except Exception as e:
                 logger.error(f"Google call failed: {e}, falling back to default")
+                config_name, config = self.router._pick_config("default")
+                self.last_model_used = config.model
+
+        if config.provider.value == "ollama":
+            try:
+                text = self.router.call_ollama(config, messages, system_prompt)
+                yield ("token", text)
+                return
+            except Exception as e:
+                logger.error(f"Ollama call failed: {e}, falling back to default")
                 config_name, config = self.router._pick_config("default")
                 self.last_model_used = config.model
 
@@ -1139,7 +707,3 @@ class {class_name}(BaseConnector):
             break
 
         yield ("token", "I hit my thinking limit — try a more focused question.")
-
-
-
-

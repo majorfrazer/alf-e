@@ -53,6 +53,16 @@ cost_per_1k_input = 0.0001
 cost_per_1k_output = 0.0004
 capabilities = ["quick", "status"]
 
+[llm.offline]
+provider = "ollama"
+model = "llama3.2"
+api_key_env = "OLLAMA_UNUSED"
+max_tokens = 2000
+temperature = 0.7
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["general", "offline"]
+
 # ── Home Assistant ───────────────────────────────────────────────────────
 
 [home_assistant]

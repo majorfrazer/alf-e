@@ -155,6 +155,44 @@ class ModelRouter:
             logger.error(f"Gemini response parse error: {data}")
             return "Sorry, I couldn't process that."
 
+    def call_ollama(
+        self,
+        config: LLMConfig,
+        messages: list[dict],
+        system: str = "",
+    ) -> str:
+        """Make an Ollama API call (local model fallback)."""
+        base_url = os.getenv("OLLAMA_URL", "http://ollama:11434")
+
+        # Convert messages to Ollama format
+        ollama_messages = []
+        if system:
+            ollama_messages.append({"role": "system", "content": system})
+        for msg in messages:
+            content = msg["content"] if isinstance(msg["content"], str) else str(msg["content"])
+            ollama_messages.append({"role": msg["role"], "content": content})
+
+        try:
+            resp = httpx.post(
+                f"{base_url}/api/chat",
+                json={
+                    "model": config.model,
+                    "messages": ollama_messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": config.temperature,
+                        "num_predict": config.max_tokens,
+                    },
+                },
+                timeout=120,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("message", {}).get("content", "Sorry, I couldn't process that.")
+        except Exception as e:
+            logger.error(f"Ollama call failed: {e}")
+            return f"Local model unavailable: {e}"
+
     def estimate_cost(self, config: LLMConfig, tokens_in: int, tokens_out: int) -> float:
         """Estimate cost in USD for a call."""
         cost_in = (tokens_in / 1000) * config.cost_per_1k_input

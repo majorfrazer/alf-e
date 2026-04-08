@@ -254,8 +254,8 @@ function renderConversationList() {
     list.innerHTML = state.conversations.map(c => `
         <div class="conv-item ${c.id === state.conversationId ? 'active' : ''}"
              onclick="loadConversation('${escHtml(c.id)}')"
-             title="${escHtml(c.preview)}">
-            ${escHtml(c.preview)}
+             title="${escHtml(c.preview || c.title || c.id)}">
+            ${escHtml(c.title || c.preview || c.id)}
         </div>`).join('');
 }
 
@@ -465,10 +465,38 @@ async function loadStatus() {
 
 // ── Conversations ─────────────────────────────────────────────────────────────
 
+function generateTitle(userMsg, assistantMsg) {
+    // Try to create a meaningful title from the user's first message
+    let title = userMsg.trim();
+
+    // Strip common prefixes
+    title = title.replace(/^(hey |hi |please |can you |could you |what's |what is |how |tell me )/i, '');
+
+    // Capitalize first letter
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+
+    // Truncate smartly at word boundary
+    if (title.length > 40) {
+        title = title.slice(0, 40).replace(/\s+\S*$/, '') + '…';
+    }
+
+    return title || 'New chat';
+}
+
 function saveConvPreview(id, firstMessage) {
-    const preview = firstMessage.slice(0, 45) + (firstMessage.length > 45 ? '…' : '');
     const existing = state.conversations.findIndex(c => c.id === id);
-    const entry = { id, preview, timestamp: Date.now() };
+
+    // If this conversation already has a title, keep it
+    if (existing >= 0 && state.conversations[existing].title) {
+        state.conversations[existing].timestamp = Date.now();
+        try { localStorage.setItem('alfe_conversations', JSON.stringify(state.conversations)); } catch {}
+        renderConversationList();
+        return;
+    }
+
+    const title = generateTitle(firstMessage, '');
+    const entry = { id, title, preview: firstMessage.slice(0, 60), timestamp: Date.now() };
+
     if (existing >= 0) {
         state.conversations[existing] = entry;
     } else {
