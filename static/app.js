@@ -3,13 +3,16 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const state = {
-    userId:           localStorage.getItem('alfe_user') || 'fraser',
-    conversationId:   null,
-    messages:         [],   // { role, content, streaming?, tool? }
-    pendingApprovals: [],
-    conversations:    [],   // { id, preview, timestamp }
-    sensorBarVisible: false,
-    sending:          false,
+    userId:             localStorage.getItem('alfe_user') || 'fraser',
+    conversationId:     null,
+    messages:           [],   // { role, content, streaming?, tool? }
+    pendingApprovals:   [],
+    conversations:      [],   // { id, preview, timestamp }
+    sensorBarVisible:   false,
+    insightsVisible:    false,
+    insights:           [],
+    insightsSeenCount:  parseInt(localStorage.getItem('alfe_insights_seen') || '0'),
+    sending:            false,
 };
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -595,6 +598,77 @@ function onKeyDown(e) {
     }
 }
 
+// ── Insights ──────────────────────────────────────────────────────────────────
+
+function toggleInsightsDrawer() {
+    state.insightsVisible = !state.insightsVisible;
+    el('insights-drawer').classList.toggle('hidden', !state.insightsVisible);
+    el('insights-btn').classList.toggle('active', state.insightsVisible);
+
+    if (state.insightsVisible) {
+        // Mark all current insights as seen
+        state.insightsSeenCount = state.insights.length;
+        try { localStorage.setItem('alfe_insights_seen', String(state.insightsSeenCount)); } catch {}
+        el('insights-badge').classList.add('hidden');
+    }
+}
+window.toggleInsightsDrawer = toggleInsightsDrawer;
+
+function renderInsights() {
+    const list = el('insights-list');
+    if (!list) return;
+
+    if (state.insights.length === 0) {
+        list.innerHTML = '<div class="insights-empty">No insights yet — Alf-E checks every 15 minutes.</div>';
+        return;
+    }
+
+    list.innerHTML = state.insights.map(insight => {
+        const priority = escHtml(insight.priority || 'low');
+        const title    = escHtml(insight.title || 'Insight');
+        const detail   = escHtml(insight.detail || '');
+        const action   = insight.action ? `<div class="insight-action">→ ${escHtml(insight.action)}</div>` : '';
+        const ts       = insight.timestamp ? new Date(insight.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+        return `
+            <div class="insight-card">
+                <div class="insight-meta">
+                    <span class="insight-priority ${priority}">${priority}</span>
+                    <span class="insight-title">${title}</span>
+                    <span class="insight-time">${ts}</span>
+                </div>
+                <div class="insight-detail">${detail}</div>
+                ${action}
+            </div>`;
+    }).join('');
+}
+
+async function loadInsights() {
+    try {
+        const res  = await fetch('api/insights?limit=20');
+        if (!res.ok) return;
+        const data = await res.json();
+        const fresh = data.insights || [];
+
+        // Count unseen (new since last open)
+        const unseen = fresh.length - state.insightsSeenCount;
+        state.insights = fresh;
+
+        // Update badge
+        const badge = el('insights-badge');
+        if (badge) {
+            if (unseen > 0 && !state.insightsVisible) {
+                badge.textContent = unseen > 9 ? '9+' : String(unseen);
+                badge.classList.remove('hidden');
+            } else if (state.insightsVisible || unseen <= 0) {
+                badge.classList.add('hidden');
+            }
+        }
+
+        if (state.insightsVisible) renderInsights();
+
+    } catch { /* server not ready yet */ }
+}
+
 // ── PWA ───────────────────────────────────────────────────────────────────────
 
 function registerSW() {
@@ -633,13 +707,20 @@ function init() {
         localStorage.setItem('alfe_user', state.userId);
         startNewChat();
     });
+    el('insights-btn').addEventListener('click', () => {
+        toggleInsightsDrawer();
+        if (state.insightsVisible) renderInsights();
+    });
 
-    // Status + sensor polling
+    // Status + sensor + insights polling
     loadStatus();
+    loadInsights();
     setInterval(() => {
         loadStatus();
         if (state.sensorBarVisible) loadSensors();
     }, 10_000);
+    // Check for new insights every 3 minutes (engine runs every 15)
+    setInterval(loadInsights, 3 * 60 * 1000);
 
     registerSW();
 

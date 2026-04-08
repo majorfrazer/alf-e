@@ -629,3 +629,100 @@ html, body {
     .typing-dot, .tool-spinner { animation: none; }
     * { transition: none !important; }
 }
+
+/* ── Insights ─────────────────────────────────────────────────────────────── */
+.insights-badge {
+    position: absolute;
+    top: 4px; right: 4px;
+    background: var(--error);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    pointer-events: none;
+}
+#insights-btn { position: relative; }
+
+.insights-drawer {
+    position: absolute;
+    top: var(--header-h);
+    right: 0; left: 0;
+    z-index: 50;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    max-height: 55vh;
+    display: flex;
+    flex-direction: column;
+}
+.insights-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.insights-list {
+    overflow-y: auto;
+    padding: 8px 0;
+}
+.insights-empty {
+    padding: 20px 16px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+.insight-card {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: default;
+}
+.insight-card:last-child { border-bottom: none; }
+.insight-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.insight-priority {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.insight-priority.high   { background: rgba(239,68,68,0.15); color: #ef4444; }
+.insight-priority.medium { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.insight-priority.low    { background: rgba(100,116,139,0.15); color: #64748b; }
+.insight-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+.insight-detail {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 2px;
+}
+.insight-action {
+    font-size: 12px;
+    color: var(--accent);
+    font-style: italic;
+}
+.insight-time {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+}

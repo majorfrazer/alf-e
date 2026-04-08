@@ -30,6 +30,7 @@ from engine.memory import Memory
 from engine.agent import Agent
 from engine.backup import BackupEngine
 from engine.scheduler import Scheduler
+from engine.cross_domain import CrossDomainEngine
 
 try:
     from engine.connectors import ConnectorRegistry
@@ -57,12 +58,13 @@ memory: Memory = None
 agent: Agent = None
 registry = None  # ConnectorRegistry
 scheduler: Scheduler = None
+cross_domain: CrossDomainEngine = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise services on startup."""
-    global playbook, router, ha, memory, agent, registry, scheduler
+    global playbook, router, ha, memory, agent, registry, scheduler, cross_domain
 
     # Playbook
     try:
@@ -125,8 +127,14 @@ async def lifespan(app: FastAPI):
     scheduler.attach_agent(agent)
     scheduler.start()
 
+    # Cross-domain reasoning engine — proactive insights every 15 minutes
+    cross_domain = CrossDomainEngine(interval_minutes=15, enabled=True)
+    cross_domain.attach(agent, memory, registry, playbook)
+    cross_domain.start()
+
     yield  # App runs here
 
+    cross_domain.stop()
     scheduler.stop()
     logger.info("Alf-E shutting down")
 
@@ -545,9 +553,23 @@ async def get_status():
         "ha_connected":  ha is not None and ha.health_check() if ha else False,
         "connectors":    connector_status,
         "scheduler":     scheduler.get_status() if scheduler else {},
+        "cross_domain":  cross_domain.get_status() if cross_domain else {"enabled": False},
         "message_count": memory.get_message_count() if memory else 0,
         "cost_30d":      cost,
         "providers":     list(playbook.llm.keys()) if playbook else [],
+    }
+
+
+# ── Insights Endpoint ───────────────────────────────────────────────────────
+
+@app.get("/api/insights")
+async def get_insights(limit: int = 20):
+    """Return recent cross-domain insights from the proactive reasoning engine."""
+    if not cross_domain:
+        return {"insights": [], "engine": {"enabled": False}}
+    return {
+        "insights": cross_domain.get_insights(limit=limit),
+        "engine":   cross_domain.get_status(),
     }
 
 
