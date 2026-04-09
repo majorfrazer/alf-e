@@ -115,8 +115,20 @@ class CrossDomainEngine:
                         result = block.text
                         break
         except Exception as e:
-            logger.error(f"Reasoning call failed: {e}")
-            return
+            logger.warning(f"Reasoning call failed ({config.provider.value}/{config.model}): {e} — trying Anthropic fallback")
+            try:
+                _, fallback = router.pick_anthropic_fallback()
+                raw = await loop.run_in_executor(
+                    None, lambda: router.call_anthropic(fallback, msgs, system=system)
+                )
+                result = ""
+                for block in raw.content:
+                    if hasattr(block, "text"):
+                        result = block.text
+                        break
+            except Exception as e2:
+                logger.error(f"Fallback reasoning also failed: {e2}")
+                return
 
         # 4. Parse and act on insights
         insights = self._parse_insights(result)
