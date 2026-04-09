@@ -47,8 +47,16 @@ class HAConnector(BaseConnector):
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
     def connect(self) -> bool:
-        url   = self.config.get("url", "")
-        token = self._env(self.config.get("token_env", "HA_API_TOKEN"))
+        # HA add-on mode: supervisor provides internal URL + token automatically
+        supervisor_token = os.getenv("SUPERVISOR_TOKEN")
+        if supervisor_token:
+            url   = "http://supervisor/core"
+            token = supervisor_token
+            logger.info("HA connector: using supervisor internal API")
+        else:
+            url   = self.config.get("url", "")
+            token = self._env(self.config.get("token_env", "HA_API_TOKEN"))
+
         if not url or not token:
             logger.error("HA connector missing url or token")
             return False

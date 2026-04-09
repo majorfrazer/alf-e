@@ -127,8 +127,9 @@ async def lifespan(app: FastAPI):
     scheduler.attach_agent(agent)
     scheduler.start()
 
-    # Cross-domain reasoning engine — proactive insights every 15 minutes
-    cross_domain = CrossDomainEngine(interval_minutes=15, enabled=True)
+    # Cross-domain reasoning engine — proactive insights every 60 minutes
+    # (Sonnet costs ~$0.01/cycle — 60 min = ~$0.24/day vs $1/day at 15 min)
+    cross_domain = CrossDomainEngine(interval_minutes=60, enabled=True)
     cross_domain.attach(agent, memory, registry, playbook)
     cross_domain.start()
 

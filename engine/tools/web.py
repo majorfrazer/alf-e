@@ -6,13 +6,17 @@ import httpx
 
 logger = logging.getLogger("alfe.tools.web")
 
-# Try the proper search library first, fall back to Instant Answers API
+# Try ddgs (new name) then duckduckgo_search (old name), then fall back to Instant Answers API
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
     _HAS_DDGS = True
 except ImportError:
-    _HAS_DDGS = False
-    logger.info("duckduckgo_search not installed — falling back to DDG Instant Answers API")
+    try:
+        from duckduckgo_search import DDGS
+        _HAS_DDGS = True
+    except ImportError:
+        _HAS_DDGS = False
+        logger.info("ddgs not installed — falling back to DDG Instant Answers API")
 
 
 def handle_web_search(inp: dict) -> str:
