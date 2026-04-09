@@ -23,7 +23,43 @@ CONTEXT:
 
 # ── AI Providers ─────────────────────────────────────────────────────────
 
+# ── Gemini Pro priority until Saturday credit reset ──────────────────────────
+# Fraser has Gemini credits — routing default/fast/heavy to Pro to save Claude credits.
+# Haiku kept as 'claude_fallback' for when Google fails.
+# Swap back after Saturday: rename claude_fallback → default, comment out google tiers.
+
 [llm.default]
+provider = "google"
+model = "gemini-2.5-pro-preview-03-25"
+api_key_env = "GOOGLE_API_KEY"
+max_tokens = 4096
+temperature = 0.7
+cost_per_1k_input = 0.00125
+cost_per_1k_output = 0.01
+capabilities = ["general", "reasoning", "analysis"]
+
+[llm.fast]
+provider = "google"
+model = "gemini-2.5-pro-preview-03-25"
+api_key_env = "GOOGLE_API_KEY"
+max_tokens = 1500
+temperature = 0.7
+cost_per_1k_input = 0.00125
+cost_per_1k_output = 0.01
+capabilities = ["quick", "status"]
+
+[llm.heavy]
+provider = "google"
+model = "gemini-2.5-pro-preview-03-25"
+api_key_env = "GOOGLE_API_KEY"
+max_tokens = 8192
+temperature = 0.5
+cost_per_1k_input = 0.00125
+cost_per_1k_output = 0.01
+capabilities = ["reasoning", "analysis", "code"]
+
+# Anthropic fallback — used automatically if Google fails
+[llm.claude_fallback]
 provider = "anthropic"
 model = "claude-haiku-4-5-20251001"
 api_key_env = "ANTHROPIC_API_KEY"
@@ -31,29 +67,7 @@ max_tokens = 2000
 temperature = 0.7
 cost_per_1k_input = 0.0008
 cost_per_1k_output = 0.004
-capabilities = ["general", "quick"]
-
-[llm.heavy]
-provider = "anthropic"
-model = "claude-sonnet-4-20250514"
-api_key_env = "ANTHROPIC_API_KEY"
-max_tokens = 4096
-temperature = 0.5
-cost_per_1k_input = 0.003
-cost_per_1k_output = 0.015
-capabilities = ["reasoning", "analysis", "code"]
-
-# Gemini fast tier disabled — 403 Forbidden on API key, falls back to Haiku anyway
-# Re-enable once Google API key billing is sorted
-# [llm.fast]
-# provider = "google"
-# model = "gemini-2.5-flash"
-# api_key_env = "GOOGLE_API_KEY"
-# max_tokens = 1000
-# temperature = 0.7
-# cost_per_1k_input = 0.0001
-# cost_per_1k_output = 0.0004
-# capabilities = ["quick", "status"]
+capabilities = ["general", "fallback"]
 
 [llm.offline]
 provider = "ollama"
@@ -82,8 +96,7 @@ house_watts = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
 grid_watts = "sensor.shellyem_ec64c9c8d5bf_channel_1_power"
 tesla_soc = "sensor.model_3_battery_level"
 tesla_charging = "sensor.model_3_charging"
-# tesla_charger_power entity 404s — entity ID needs confirming in HA dev tools
-# tesla_charger_power = "sensor.shelly1pmg3_ec626003adc0_switch_0_power"
+tesla_charger_power = "sensor.shelly1pmg3_dcda0ce167c4_power"
 
 # ── Users ────────────────────────────────────────────────────────────────
 

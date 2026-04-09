@@ -68,6 +68,14 @@ class ModelRouter:
         name = next(iter(self.configs))
         return name, self.configs[name]
 
+    def pick_anthropic_fallback(self) -> tuple[str, LLMConfig]:
+        """Return the first Anthropic config available — used when Google/Ollama fail."""
+        for name, cfg in self.configs.items():
+            if cfg.provider.value == "anthropic":
+                return name, cfg
+        # No anthropic config — return default and hope for the best
+        return self._pick_config("default")
+
     def route(self, user_input: str) -> tuple[str, LLMConfig]:
         """Route a user message to the best model.
 

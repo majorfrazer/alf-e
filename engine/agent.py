@@ -561,16 +561,16 @@ OPERATING RULES:
             try:
                 return self.router.call_google(config, messages, system_prompt)
             except Exception as e:
-                logger.error(f"Google call failed: {e}, falling back to default")
-                config_name, config = self.router._pick_config("default")
+                logger.error(f"Google call failed: {e}, falling back to Anthropic")
+                config_name, config = self.router.pick_anthropic_fallback()
                 self.last_model_used = config.model
 
         if config.provider.value == "ollama":
             try:
                 return self.router.call_ollama(config, messages, system_prompt)
             except Exception as e:
-                logger.error(f"Ollama call failed: {e}, falling back to default")
-                config_name, config = self.router._pick_config("default")
+                logger.error(f"Ollama call failed: {e}, falling back to Anthropic")
+                config_name, config = self.router.pick_anthropic_fallback()
                 self.last_model_used = config.model
 
         loop_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
@@ -644,8 +644,8 @@ OPERATING RULES:
                 yield ("token", text)
                 return
             except Exception as e:
-                logger.error(f"Google call failed: {e}, falling back to default")
-                config_name, config = self.router._pick_config("default")
+                logger.error(f"Google call failed: {e}, falling back to Anthropic")
+                config_name, config = self.router.pick_anthropic_fallback()
                 self.last_model_used = config.model
 
         if config.provider.value == "ollama":
@@ -654,8 +654,8 @@ OPERATING RULES:
                 yield ("token", text)
                 return
             except Exception as e:
-                logger.error(f"Ollama call failed: {e}, falling back to default")
-                config_name, config = self.router._pick_config("default")
+                logger.error(f"Ollama call failed: {e}, falling back to Anthropic")
+                config_name, config = self.router.pick_anthropic_fallback()
                 self.last_model_used = config.model
 
         api_key = os.getenv(config.api_key_env, "")
