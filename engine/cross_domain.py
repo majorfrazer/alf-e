@@ -91,17 +91,29 @@ class CrossDomainEngine:
         # 2. Build the reasoning prompt
         prompt = self._build_prompt(snapshot)
 
-        # 3. Run through the agent (heavy tier)
+        # 3. Call the model directly via router (bypasses tool-use loop intentionally —
+        #    cross-domain reasoning only needs a plain completion, no tools).
+        #    Uses heavy tier; if that's Google we call it directly, otherwise Anthropic.
+        router = self._agent.router
+        _, config = router._pick_config("heavy")
+        system = self._system_prompt()
+        msgs = [{"role": "user", "content": prompt}]
+
         loop = asyncio.get_running_loop()
         try:
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._agent.chat(
-                    messages=[{"role": "user", "content": prompt}],
-                    user_id="cross_domain_engine",
-                    system_prompt=self._system_prompt(),
-                ),
-            )
+            if config.provider.value == "google":
+                result = await loop.run_in_executor(
+                    None, lambda: router.call_google(config, msgs, system)
+                )
+            else:
+                raw = await loop.run_in_executor(
+                    None, lambda: router.call_anthropic(config, msgs, system=system)
+                )
+                result = ""
+                for block in raw.content:
+                    if hasattr(block, "text"):
+                        result = block.text
+                        break
         except Exception as e:
             logger.error(f"Reasoning call failed: {e}")
             return

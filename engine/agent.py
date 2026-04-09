@@ -555,24 +555,13 @@ OPERATING RULES:
                 break
 
         config_name, config = self.router.route(last_user_msg)
+
+        # Google and Ollama don't support tool use — redirect to Anthropic for the
+        # agentic loop. CrossDomain uses the router directly and bypasses this path.
+        if config.provider.value in ("google", "ollama"):
+            config_name, config = self.router.pick_anthropic_fallback()
+
         self.last_model_used = config.model
-
-        if config.provider.value == "google":
-            try:
-                return self.router.call_google(config, messages, system_prompt)
-            except Exception as e:
-                logger.error(f"Google call failed: {e}, falling back to Anthropic")
-                config_name, config = self.router.pick_anthropic_fallback()
-                self.last_model_used = config.model
-
-        if config.provider.value == "ollama":
-            try:
-                return self.router.call_ollama(config, messages, system_prompt)
-            except Exception as e:
-                logger.error(f"Ollama call failed: {e}, falling back to Anthropic")
-                config_name, config = self.router.pick_anthropic_fallback()
-                self.last_model_used = config.model
-
         loop_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
 
         for _ in range(10):
@@ -638,25 +627,10 @@ OPERATING RULES:
         config_name, config = self.router.route(last_user_msg)
         self.last_model_used = config.model
 
-        if config.provider.value == "google":
-            try:
-                text = self.router.call_google(config, messages, system_prompt)
-                yield ("token", text)
-                return
-            except Exception as e:
-                logger.error(f"Google call failed: {e}, falling back to Anthropic")
-                config_name, config = self.router.pick_anthropic_fallback()
-                self.last_model_used = config.model
-
-        if config.provider.value == "ollama":
-            try:
-                text = self.router.call_ollama(config, messages, system_prompt)
-                yield ("token", text)
-                return
-            except Exception as e:
-                logger.error(f"Ollama call failed: {e}, falling back to Anthropic")
-                config_name, config = self.router.pick_anthropic_fallback()
-                self.last_model_used = config.model
+        # Google and Ollama don't support tool use — redirect to Anthropic
+        if config.provider.value in ("google", "ollama"):
+            config_name, config = self.router.pick_anthropic_fallback()
+            self.last_model_used = config.model
 
         api_key = os.getenv(config.api_key_env, "")
         if not api_key:
