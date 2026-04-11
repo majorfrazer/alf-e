@@ -129,7 +129,9 @@ async def lifespan(app: FastAPI):
 
     # Cross-domain reasoning engine — proactive insights every 60 minutes
     # (Sonnet costs ~$0.01/cycle — 60 min = ~$0.24/day vs $1/day at 15 min)
-    cross_domain = CrossDomainEngine(interval_minutes=60, enabled=True)
+    # CrossDomain disabled — Gemini free tier 429s on AI Studio key.
+    # Re-enable once a paid Google Cloud API key is configured.
+    cross_domain = CrossDomainEngine(interval_minutes=60, enabled=False)
     cross_domain.attach(agent, memory, registry, playbook)
     cross_domain.start()
 
