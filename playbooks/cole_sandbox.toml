@@ -91,12 +91,16 @@ token_env = "HA_API_TOKEN"
 # ── Sensors ──────────────────────────────────────────────────────────────
 
 [sensors]
-solar_watts = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_0_power"
-house_watts = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
-grid_watts = "sensor.shellyem_ec64c9c8d5bf_channel_1_power"
-tesla_soc = "sensor.model_3_battery_level"
-tesla_charging = "sensor.model_3_charging"
-tesla_charger_power = "sensor.shelly1pmg3_dcda0ce167c4_power"
+# ShellyPro EM50 (08f9e0e7fcac) — at inverter/AC panel
+solar_watts         = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"   # Ch1 = Solar inverter output
+ac_watts            = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_0_power"   # Ch0 = Air conditioner
+# ShellyEM 2-ch (ec64c9c8d5bf) — at main switchboard
+grid_watts          = "sensor.shellyem_ec64c9c8d5bf_channel_1_power"             # Ch0 (HA ch1) = Grid; negative = exporting
+house_lights_watts  = "sensor.shellyem_ec64c9c8d5bf_channel_2_power"             # Ch1 (HA ch2) = House lights circuit
+# Tesla
+tesla_soc           = "sensor.model_3_battery_level"
+tesla_charging      = "sensor.model_3_charging"
+tesla_charger_power = "sensor.shelly1pmg3_dcda0ce167c4_power"                    # Shelly 1PM G3 = Tesla charger
 
 # ── Users ────────────────────────────────────────────────────────────────
 
@@ -179,7 +183,7 @@ escalation_message = "Blocked: cannot turn off fridge/freezer."
 [actions.solar_check]
 description = "Check current solar generation"
 verb = "ha_query"
-entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_0_power"
+entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
 approval = "autonomous"
 
 [actions.tesla_check]
@@ -188,10 +192,10 @@ verb = "ha_query"
 entity = "sensor.model_3_battery_level"
 approval = "autonomous"
 
-[actions.house_power]
-description = "Check house power consumption"
+[actions.ac_power]
+description = "Check air conditioner power consumption"
 verb = "ha_query"
-entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_1_power"
+entity = "sensor.shellyproem50_08f9e0e7fcac_energy_meter_0_power"
 approval = "autonomous"
 
 # Smart plugs — toggling is safe, just notify
