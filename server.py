@@ -49,7 +49,7 @@ logger = logging.getLogger("alfe.server")
 
 # ── Load playbook ────────────────────────────────────────────────────────────
 
-PLAYBOOK_PATH = Path(os.getenv("ALFE_PLAYBOOK", "playbooks/cole_sandbox.toml"))
+PLAYBOOK_PATH = Path(os.getenv("ALFE_PLAYBOOK", "playbooks/scholz_brotherhood.toml"))
 
 playbook: PlaybookConfig = None
 router: ModelRouter = None
@@ -127,11 +127,9 @@ async def lifespan(app: FastAPI):
     scheduler.attach_agent(agent)
     scheduler.start()
 
-    # Cross-domain reasoning engine — proactive insights every 60 minutes
-    # (Sonnet costs ~$0.01/cycle — 60 min = ~$0.24/day vs $1/day at 15 min)
-    # CrossDomain disabled — Gemini free tier 429s on AI Studio key.
-    # Re-enable once a paid Google Cloud API key is configured.
-    cross_domain = CrossDomainEngine(interval_minutes=60, enabled=False)
+    # Cross-domain reasoning engine — proactive insights every 60 minutes.
+    # Pinned to Anthropic Haiku inside cross_domain.py (~$0.04-0.08/day at 60-min cycle).
+    cross_domain = CrossDomainEngine(interval_minutes=60, enabled=True)
     cross_domain.attach(agent, memory, registry, playbook)
     cross_domain.start()
 

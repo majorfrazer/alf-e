@@ -93,42 +93,26 @@ class CrossDomainEngine:
 
         # 3. Call the model directly via router (bypasses tool-use loop intentionally —
         #    cross-domain reasoning only needs a plain completion, no tools).
-        #    Uses heavy tier; if that's Google we call it directly, otherwise Anthropic.
+        #    Pinned to Anthropic (Haiku): Gemini free tier 429s on this workload,
+        #    and playbook heavy tier is Gemini while Fraser burns Google credits.
         router = self._agent.router
-        _, config = router._pick_config("heavy")
+        _, config = router.pick_anthropic_fallback()
         system = self._system_prompt()
         msgs = [{"role": "user", "content": prompt}]
 
         loop = asyncio.get_running_loop()
         try:
-            if config.provider.value == "google":
-                result = await loop.run_in_executor(
-                    None, lambda: router.call_google(config, msgs, system)
-                )
-            else:
-                raw = await loop.run_in_executor(
-                    None, lambda: router.call_anthropic(config, msgs, system=system)
-                )
-                result = ""
-                for block in raw.content:
-                    if hasattr(block, "text"):
-                        result = block.text
-                        break
+            raw = await loop.run_in_executor(
+                None, lambda: router.call_anthropic(config, msgs, system=system)
+            )
+            result = ""
+            for block in raw.content:
+                if hasattr(block, "text"):
+                    result = block.text
+                    break
         except Exception as e:
-            logger.warning(f"Reasoning call failed ({config.provider.value}/{config.model}): {e} — trying Anthropic fallback")
-            try:
-                _, fallback = router.pick_anthropic_fallback()
-                raw = await loop.run_in_executor(
-                    None, lambda: router.call_anthropic(fallback, msgs, system=system)
-                )
-                result = ""
-                for block in raw.content:
-                    if hasattr(block, "text"):
-                        result = block.text
-                        break
-            except Exception as e2:
-                logger.error(f"Fallback reasoning also failed: {e2}")
-                return
+            logger.error(f"CrossDomain reasoning call failed ({config.provider.value}/{config.model}): {e}")
+            return
 
         # 4. Parse and act on insights
         insights = self._parse_insights(result)
