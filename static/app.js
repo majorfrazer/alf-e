@@ -15,6 +15,57 @@ const state = {
     sending:            false,
 };
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+function getToken() { return localStorage.getItem('alfe_token') || ''; }
+
+function apiFetch(url, options = {}) {
+    const token = getToken();
+    const headers = { ...(options.headers || {}) };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(url, { ...options, headers });
+}
+
+function showLogin() {
+    document.body.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f0f0f;">
+            <div style="background:#1a1a1a;border:1px solid #333;border-radius:12px;padding:40px;width:320px;text-align:center;">
+                <div style="font-size:28px;margin-bottom:8px;">⚡</div>
+                <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px;">Alf-E</div>
+                <div style="font-size:13px;color:#888;margin-bottom:28px;">Scholz Brotherhood</div>
+                <input id="token-input" type="password" placeholder="API Token"
+                    style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;
+                           border:1px solid #444;background:#111;color:#fff;font-size:14px;margin-bottom:12px;" />
+                <button id="token-submit"
+                    style="width:100%;padding:10px;border-radius:8px;border:none;
+                           background:#7c3aed;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">
+                    Connect
+                </button>
+                <div id="token-error" style="color:#f87171;font-size:12px;margin-top:10px;"></div>
+            </div>
+        </div>`;
+    const input = document.getElementById('token-input');
+    const btn   = document.getElementById('token-submit');
+    const err   = document.getElementById('token-error');
+    const tryLogin = async () => {
+        const t = input.value.trim();
+        if (!t) return;
+        localStorage.setItem('alfe_token', t);
+        const res = await fetch('api/status', { headers: { 'Authorization': `Bearer ${t}` } });
+        if (res.ok) { location.reload(); }
+        else { err.textContent = 'Invalid token — check and try again.'; localStorage.removeItem('alfe_token'); }
+    };
+    btn.addEventListener('click', tryLogin);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+    input.focus();
+}
+
+async function checkAuth() {
+    const res = await fetch('api/status', { headers: { 'Authorization': `Bearer ${getToken()}` } });
+    if (res.status === 401 || res.status === 403) { showLogin(); return false; }
+    return true;
+}
+
 // ── DOM ───────────────────────────────────────────────────────────────────────
 
 const el = id => document.getElementById(id);
@@ -285,7 +336,7 @@ async function sendMessage(text) {
     renderMessages();
 
     try {
-        const response = await fetch('api/chat/stream', {
+        const response = await apiFetch('api/chat/stream', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({
@@ -360,7 +411,7 @@ async function handleApproval(index, approved) {
     const isProposal = state.pendingApprovals[index]?.type === 'code_proposal';
 
     try {
-        const res  = await fetch('api/approve', {
+        const res  = await apiFetch('api/approve', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ index, approved, user_id: state.userId }),
@@ -415,7 +466,7 @@ function showRestartBanner() {
     const poll = setInterval(async () => {
         attempts++;
         try {
-            const r = await fetch('api/status');
+            const r = await apiFetch('api/status');
             if (r.ok) {
                 clearInterval(poll);
                 banner.style.background = '#16a34a';
@@ -431,7 +482,7 @@ function showRestartBanner() {
 
 async function loadSensors() {
     try {
-        const res  = await fetch('api/sensors');
+        const res  = await apiFetch('api/sensors');
         const data = await res.json();
         renderSensors(data.sensors || {}, data.connected || false);
     } catch {
@@ -441,7 +492,7 @@ async function loadSensors() {
 
 async function loadStatus() {
     try {
-        const res  = await fetch('api/status');
+        const res  = await apiFetch('api/status');
         const data = await res.json();
         const dot  = el('status-dot');
 
@@ -644,7 +695,7 @@ function renderInsights() {
 
 async function loadInsights() {
     try {
-        const res  = await fetch('api/insights?limit=20');
+        const res  = await apiFetch('api/insights?limit=20');
         if (!res.ok) return;
         const data = await res.json();
         const fresh = data.insights || [];
@@ -730,4 +781,6 @@ function init() {
 // Expose approval handler for inline onclick
 window.handleApproval = handleApproval;
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', async () => {
+    if (await checkAuth()) init();
+});
