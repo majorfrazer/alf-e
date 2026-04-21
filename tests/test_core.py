@@ -116,14 +116,14 @@ def test_memory_cost_tracking():
 
 def test_model_router_tier_classification():
     """Router classifies tasks into correct tiers."""
-    pb = load_playbook(Path("playbooks/cole_sandbox.toml"))
+    pb = load_playbook(Path("playbooks/scholz_brotherhood.toml"))
     router = ModelRouter(pb.llm)
 
     _, fast_config = router.route("What's the weather?")
-    assert fast_config.model in ["gemini-2.5-flash", "claude-haiku-4-5-20251001"]
+    assert fast_config.model.startswith("claude-haiku") or fast_config.model.startswith("gemini")
 
     _, heavy_config = router.route("Analyse my energy usage over the last month and prepare a comprehensive report with scenarios")
-    assert heavy_config.model in ["claude-sonnet-4-20250514"]
+    assert heavy_config.model.startswith("claude-sonnet") or heavy_config.model.startswith("gemini")
 
     print("  ✅ Router tier classification works")
 

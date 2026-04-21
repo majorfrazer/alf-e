@@ -17,8 +17,6 @@
 #   docker exec tailscale tailscale funnel --bg 8099
 #   → https://<machine-name>.tail-xxxxx.ts.net
 
-version: "3.9"
-
 networks:
   alfe_net:
     driver: bridge

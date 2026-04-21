@@ -26,7 +26,7 @@ map:
 options:
   anthropic_api_key: ""
   google_api_key: ""
-  playbook: "cole_sandbox"
+  playbook: "scholz_brotherhood"
 
 schema:
   anthropic_api_key: str

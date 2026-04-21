@@ -15,7 +15,7 @@ SETUP (one-time, run on your Mac before deploying to N95):
 ENVIRONMENT VARIABLES:
   GMAIL_CREDENTIALS_PATH  — path to client_secret JSON  (default: /data/gmail_credentials.json)
   GMAIL_TOKEN_PATH        — path to token JSON          (default: /data/gmail_token.json)
-  GMAIL_USER              — Gmail address               (default: alfe.cole@gmail.com)
+  GMAIL_USER              — Gmail address               (default: from playbook config)
 
 TOOLS EXPOSED:
   gmail_get_profile     — account info, total message count
@@ -71,7 +71,7 @@ class GmailConnector(BaseConnector):
     def __init__(self, config: dict):
         super().__init__(config)
         self._service = None
-        self._user = config.get("user", os.environ.get("GMAIL_USER", "alfe.cole@gmail.com"))
+        self._user = config.get("user", os.environ.get("GMAIL_USER", ""))
         self._credentials_path = Path(
             config.get("credentials_path")
             or os.environ.get("GMAIL_CREDENTIALS_PATH", "/data/gmail_credentials.json")
