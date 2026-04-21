@@ -154,6 +154,12 @@ id = "gmail"
 enabled = true
 user = "fraser.nelec@gmail.com"
 
+[[connectors]]
+id = "bom"
+enabled = true
+geohash = "r7hge7"
+location = "Brisbane"
+
 # ── Scheduled Ops ────────────────────────────────────────────────────────
 
 [[scheduled_ops]]

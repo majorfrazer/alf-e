@@ -27,6 +27,7 @@ CONNECTOR_MODULES: dict[str, str] = {
     "gmail":   "engine.connectors.gmail",
     "gcal":    "engine.connectors.gcal",
     "weather": "engine.connectors.weather",
+    "bom":     "engine.connectors.bom",
     "tesla":   "engine.connectors.tesla",
     "eufy":    "engine.connectors.eufy",
 }
