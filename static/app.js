@@ -61,6 +61,15 @@ function showLogin() {
 }
 
 async function checkAuth() {
+    // Accept ?token= in URL (e.g. iframe embed) — save it and strip from URL
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken) {
+        localStorage.setItem('alfe_token', urlToken);
+        params.delete('token');
+        const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+        history.replaceState(null, '', newUrl);
+    }
     const res = await fetch('api/status', { headers: { 'Authorization': `Bearer ${getToken()}` } });
     if (res.status === 401 || res.status === 403) { showLogin(); return false; }
     return true;

@@ -59,7 +59,7 @@ services:
     networks:
       - alfe_net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8099/api/status"]
+      test: ["CMD", "sh", "-c", "curl -sf -H \"Authorization: Bearer $ALFE_API_TOKEN\" http://localhost:8099/api/status"]
       interval: 30s
       timeout: 10s
       retries: 3
