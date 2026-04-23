@@ -38,6 +38,7 @@ class ActionApproval(str, Enum):
 
 class UserRole(str, Enum):
     owner = "owner"
+    admin = "admin"
     member = "member"
     guest = "guest"
 

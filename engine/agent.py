@@ -466,7 +466,7 @@ OPERATING RULES:
         user = self.playbook.get_user(user_id)
         if not user:
             return None
-        if user.role.value == "owner":
+        if user.role.value in ("owner", "admin"):
             return None
 
         permitted = user.permitted_domains
