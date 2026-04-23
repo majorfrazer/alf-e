@@ -250,3 +250,19 @@ Generate a morning briefing for Fraser. Include:
 5. Which client HA sites, if any, need attention
 Keep it concise and friendly. Sidekick tone, not boardroom.
 """
+
+[[scheduled_ops]]
+id = "nightly_backup"
+name = "Nightly HA Backup"
+description = "Trigger a HA backup every night and notify if it fails"
+at_time = "02:00"
+notify_on_complete = false
+
+prompt = """
+Trigger a Home Assistant backup using the ha_call_service tool:
+  domain: backup
+  service: create
+  data: {}
+If the call succeeds, say nothing (silent success).
+If it fails, send a push notification to Fraser with the error.
+"""
