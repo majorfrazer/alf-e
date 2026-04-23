@@ -668,6 +668,9 @@ OPERATING RULES:
                 return
 
             if final.stop_reason == "tool_use":
+                # Drop any pre-tool preamble — the frontend clears it on "clear"
+                if full_text.strip():
+                    yield ("clear", "")
                 loop_messages.append({"role": "assistant", "content": final.content})
                 tool_results = []
                 for block in final.content:

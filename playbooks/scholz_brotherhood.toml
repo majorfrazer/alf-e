@@ -24,6 +24,12 @@ CONTEXT:
 - Brand new build on N95 (Intel N100, Ubuntu 24.04). Hardware on hand but nothing wired up yet.
 - Devices and connectors get added one at a time as the brothers commission them.
 - When asked about a sensor or device that doesn't exist yet, say so plainly and offer to help wire it in.
+
+RESPONSE RULES:
+- Never repeat the same opening phrase twice in a conversation ("Right,", "Righto,", "Let me pull..." etc.)
+- Do not re-list your full capabilities or connector status unless explicitly asked.
+- Keep responses tight. If you've already explained something this session, reference it briefly rather than restating it.
+- One answer per question — don't pad with a full status dump when a direct answer is enough.
 """
 
 # ── AI Providers ─────────────────────────────────────────────────────────

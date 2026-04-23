@@ -380,6 +380,11 @@ async function sendMessage(text) {
                     assistantMsg.content += data.content;
                     updateLastMessage();
 
+                } else if (data.type === 'clear') {
+                    assistantMsg.content = '';
+                    assistantMsg.tool = null;
+                    updateLastMessage();
+
                 } else if (data.type === 'tool') {
                     assistantMsg.tool = data.content;
                     if (!assistantMsg.content) updateLastMessage(); // show spinner
