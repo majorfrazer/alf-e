@@ -94,7 +94,7 @@ role = "owner"
 [[users]]
 id = "harley"
 name = "Harley Scholz"
-role = "member"
+role = "admin"
 
 [[users]]
 id = "matt"
