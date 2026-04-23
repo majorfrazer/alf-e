@@ -1,0 +1,23 @@
+ALF-E — QUICK INSTALL
+═════════════════════
+
+1. Install Docker Desktop (https://www.docker.com/products/docker-desktop)
+   Open the app. Wait for whale icon to say "Docker is running".
+
+2. Run the installer for your computer:
+       Mac     → double-click install-mac.command
+       Windows → double-click install-windows.bat
+       Linux   → ./install-linux.sh
+
+3. The first run opens a .env file. Paste in two values:
+       ANTHROPIC_API_KEY  (from https://console.anthropic.com)
+       HA_API_TOKEN       (from HA → Profile → Security)
+
+   Save the file, then run the installer again.
+
+4. Open http://localhost:8099 in your browser.
+   Your PWA login token is in the .env file (ALFE_API_TOKEN line).
+
+═════════════════════
+See README.md for full docs, HA sidebar integration, troubleshooting,
+and what to do next.

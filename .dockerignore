@@ -1,0 +1,38 @@
+# ── Secrets (belt + braces with .gitignore) ────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*_credentials.json
+*_token.json
+
+# ── Personal / non-public artefacts ─────────────────────────────
+brotherhood/
+gift/
+data/
+*.db
+*.zip
+alfe_code.zip
+alf-e-gift-*.zip
+
+# ── All personal playbooks — ship only example_household.toml ───
+playbooks/*.toml
+!playbooks/example_household.toml
+
+# ── Dev / build meta ────────────────────────────────────────────
+.git/
+.github/
+.gitignore
+.dockerignore
+.claude/
+CLAUDE.md
+tests/
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+
+# ── Local-only runtime files ────────────────────────────────────
+.restart_requested

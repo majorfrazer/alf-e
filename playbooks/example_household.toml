@@ -1,0 +1,155 @@
+# ════════════════════════════════════════════════════════════════════════
+#  Example household playbook — Alf-E starter template
+# ════════════════════════════════════════════════════════════════════════
+#
+# This is a generic template. Works as-is but is deliberately empty.
+# Customise with your installer.
+#
+# Things to customise:
+#   - [metadata]  — household name, timezone, owner
+#   - personality_prompt — how Alf-E talks to you
+#   - [[users]]   — one block per person in the house
+#   - [sensors]   — HA entity IDs for the devices you care about
+#   - [[scheduled_ops]] — daily briefings, reminders, etc.
+
+[metadata]
+name = "Household"
+description = "Alf-E for a household. Customise this playbook."
+version = "1.0.0"
+owner = "Household Owner"
+timezone = "UTC"
+
+personality_prompt = """
+You are Alf-E: the household's personal AI agent.
+
+PERSONALITY:
+- Warm, practical, helpful
+- Honest about limitations — no sugarcoating
+- Keep responses tight
+
+CONTEXT:
+- Fresh installation. Devices will be commissioned one at a time.
+- When asked about a sensor or device that doesn't exist yet, say so plainly
+  and offer to help wire it in.
+
+RESPONSE RULES:
+- Never repeat the same opening phrase twice in a conversation.
+- Do not re-list your capabilities or connector status unless asked.
+- One answer per question — don't pad with a full status dump.
+"""
+
+# ── AI Providers ─────────────────────────────────────────────────────────
+# Default everything to Claude Haiku (cheap + fast). Heavy tier uses Sonnet.
+
+[llm.default]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 4096
+temperature = 0.7
+cost_per_1k_input = 0.0008
+cost_per_1k_output = 0.004
+capabilities = ["general", "reasoning", "analysis"]
+
+[llm.fast]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 1500
+temperature = 0.7
+cost_per_1k_input = 0.0008
+cost_per_1k_output = 0.004
+capabilities = ["quick", "status"]
+
+[llm.heavy]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 8192
+temperature = 0.5
+cost_per_1k_input = 0.003
+cost_per_1k_output = 0.015
+capabilities = ["reasoning", "analysis", "code"]
+
+# ── Home Assistant ───────────────────────────────────────────────────────
+
+[home_assistant]
+url = "http://host.docker.internal:8123"
+token_env = "HA_API_TOKEN"
+
+# ── Sensors ──────────────────────────────────────────────────────────────
+# Format:  friendly_name = "sensor.entity_id_from_ha"
+
+[sensors]
+
+# ── Users ────────────────────────────────────────────────────────────────
+# Roles: owner | admin | member | guest
+
+[[users]]
+id = "owner"
+name = "Household Owner"
+role = "owner"
+
+# ── Notifications ────────────────────────────────────────────────────────
+
+[[notifications]]
+channel = "pwa_push"
+enabled = true
+urgency_min = "normal"
+
+# ── Energy (optional) ────────────────────────────────────────────────────
+
+[energy]
+peak_rate = 0.0
+offpeak_rate = 0.0
+feed_in_rate = 0.0
+peak_start = "06:00"
+peak_end = "00:00"
+solar_capacity_kw = 0.0
+battery_capacity_kwh = 0.0
+battery_min_soc = 20
+currency = "USD"
+
+# ── Security ─────────────────────────────────────────────────────────────
+
+[security]
+require_approval_for_writes = true
+max_actions_per_minute = 30
+max_actions_per_hour = 300
+audit_log_retention_days = 90
+safe_file_roots = ["/data/alfe_notes", "/data/reports"]
+
+# ── Boundaries ───────────────────────────────────────────────────────────
+
+[[boundaries]]
+id = "max_daily_spend"
+description = "Max daily API spend before Alf-E self-limits to fast tier only"
+type = "monetary"
+limit = 2.00
+unit = "USD"
+escalation_message = "Daily API spend hit ${value} — switching to fast tier only."
+
+# ── Connectors ───────────────────────────────────────────────────────────
+
+[[connectors]]
+id = "ha"
+enabled = true
+url = "http://host.docker.internal:8123"
+token_env = "HA_API_TOKEN"
+
+# ── Scheduled Ops (optional) ─────────────────────────────────────────────
+
+[[scheduled_ops]]
+id = "morning_briefing"
+name = "Morning Briefing"
+description = "Daily morning summary"
+at_time = "07:00"
+notify_on_complete = true
+
+prompt = """
+Generate a short morning briefing. Include:
+1. Today's calendar (if connected)
+2. Weather (if connected)
+3. Anything anomalous from the last 24 hours
+Keep it tight and friendly.
+"""

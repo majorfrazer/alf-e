@@ -1,0 +1,47 @@
+# Alf-E — self-hosted personal AI agent
+# Runs alongside Home Assistant on the same machine.
+#
+# First-time setup: run the installer script for your OS
+#   macOS:   double-click install-mac.command
+#   Linux:   ./install-linux.sh
+#   Windows: double-click install-windows.bat
+#
+# Manual start (after .env is filled in):
+#   docker compose up -d
+#   Open http://localhost:8099
+
+networks:
+  alfe_net:
+    driver: bridge
+
+volumes:
+  alfe_data:
+
+services:
+  alf-e:
+    image: ghcr.io/majorfrazer/alf-e:latest
+    container_name: alf-e
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "8099:8099"
+    volumes:
+      - alfe_data:/data
+      - ./playbooks:/app/playbooks:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - HA_API_TOKEN=${HA_API_TOKEN}
+      - HA_URL=${HA_URL:-http://host.docker.internal:8123}
+      - ALFE_API_TOKEN=${ALFE_API_TOKEN}
+      - ALFE_PLAYBOOK=${ALFE_PLAYBOOK:-playbooks/example_household.toml}
+      - ALFE_DATA_DIR=/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - alfe_net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -sf -H \"Authorization: Bearer $$ALFE_API_TOKEN\" http://localhost:8099/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
