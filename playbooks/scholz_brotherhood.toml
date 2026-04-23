@@ -89,6 +89,12 @@ token_env = "HA_API_TOKEN"
 # Format:  friendly_name = "sensor.entity_id_from_ha"
 
 [sensors]
+# Fraser's iPhone (Apple Blossom)
+fraser_phone_battery      = "sensor.apple_blossom_battery_level"
+fraser_phone_battery_state = "sensor.apple_blossom_battery_state"
+fraser_phone_location     = "device_tracker.apple_blossom"
+fraser_phone_ssid         = "sensor.apple_blossom_ssid"
+fraser_phone_storage      = "sensor.apple_blossom_storage"
 
 # ── Users ────────────────────────────────────────────────────────────────
 
