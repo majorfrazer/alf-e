@@ -26,6 +26,7 @@ volumes:
   alfe_data:
   ollama_models:
   tailscale_state:
+  filebrowser_db:
 
 services:
 
@@ -103,6 +104,21 @@ services:
     environment:
       - OLLAMA_KEEP_ALIVE=24h
       - OLLAMA_NUM_PARALLEL=2
+    networks:
+      - alfe_net
+
+  # ── File Browser (web UI for editing HA config files) ────────────────────
+  # Access at http://192.168.0.17:8080
+  # Default login: admin / admin  ← change immediately after first login
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    container_name: filebrowser
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ha_config:/srv                      # HA config folder exposed as root
+      - filebrowser_db:/database            # persists settings + users
     networks:
       - alfe_net
 
