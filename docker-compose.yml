@@ -44,6 +44,7 @@ services:
       - ./engine/connectors:/app/engine/connectors  # Self-built connectors written at runtime
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ALFE_API_TOKEN=${ALFE_API_TOKEN:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - HA_API_TOKEN=${HA_API_TOKEN:-}
       - HA_URL=http://homeassistant:8123
