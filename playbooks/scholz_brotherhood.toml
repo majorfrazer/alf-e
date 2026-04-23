@@ -148,6 +148,9 @@ escalation_message = "Daily API spend hit ${value} — switching to fast tier on
 [[connectors]]
 id = "ha"
 enabled = true
+url = "http://192.168.0.17:8123"
+# DO NOT store HA tokens in playbooks; use environment variables instead.
+token_env = "HA_API_TOKEN"
 
 [[connectors]]
 id = "gmail"

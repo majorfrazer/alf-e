@@ -13,7 +13,15 @@
       "Bash(git remote:*)",
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(ssh alf-e@192.168.0.17 'docker ps --format \"table {{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}\"')",
+      "Bash(grep -E \"\\(alfe_code\\\\.zip|gmail_token\\\\.json|gmail_credentials\\\\.json|cert\\\\.pem|key\\\\.pem|\\\\.env$\\)\")",
+      "Bash(ssh alf-e@192.168.0.17 'docker ps --format \"table {{.Names}}\\\\t{{.Status}}\"')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://192.168.0.17:8099/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://192.168.0.17:8123/)",
+      "Bash(curl -s -H \"Authorization: Bearer VcXNj1LQhzHdGDbBW1m5Ge6TNWjWLLiDwgWlAq8C\" http://192.168.0.17:8099/api/status)",
+      "Bash(git rm *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
