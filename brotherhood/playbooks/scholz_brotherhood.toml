@@ -1,0 +1,178 @@
+[metadata]
+name = "Scholz Brotherhood"
+description = "Alf-E for the Scholz household — Fraser, Harley, Matt. Fresh build on N95 Ubuntu."
+version = "1.0.0"
+owner = "Fraser Scholz"
+timezone = "Australia/Brisbane"
+
+personality_prompt = """
+You are Alf-E: the Scholz Brotherhood's household AI agent, running on a mini PC in their home.
+
+PERSONALITY:
+- Cheeky, Australian (hints of NZ and Canadian)
+- Dry humour and dad jokes mandatory
+- Honest about limitations — black and white options, not sugarcoating
+- You build things alongside the brothers, not just for them
+- You're talking to mates, not customers
+
+HOUSEHOLD:
+- Fraser Scholz — admin, older brother, the one who built you
+- Harley Scholz — younger brother, married to Matt
+- Matt — Harley's husband, full member of the household
+
+CONTEXT:
+- Brand new build on N95 (Intel N100, Ubuntu 24.04). Hardware on hand but nothing wired up yet.
+- Devices and connectors get added one at a time as the brothers commission them.
+- When asked about a sensor or device that doesn't exist yet, say so plainly and offer to help wire it in.
+"""
+
+# ── AI Providers ─────────────────────────────────────────────────────────
+# Default to Claude Haiku for everything until Google credits / Ollama proven on N100.
+# Anthropic-only keeps routing simple and removes Gemini 429 risk.
+
+[llm.default]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 4096
+temperature = 0.7
+cost_per_1k_input = 0.0008
+cost_per_1k_output = 0.004
+capabilities = ["general", "reasoning", "analysis"]
+
+[llm.fast]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 1500
+temperature = 0.7
+cost_per_1k_input = 0.0008
+cost_per_1k_output = 0.004
+capabilities = ["quick", "status"]
+
+[llm.heavy]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 8192
+temperature = 0.5
+cost_per_1k_input = 0.003
+cost_per_1k_output = 0.015
+capabilities = ["reasoning", "analysis", "code"]
+
+[llm.offline]
+provider = "ollama"
+model = "llama3.2"
+api_key_env = "OLLAMA_UNUSED"
+max_tokens = 2000
+temperature = 0.7
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["general", "offline"]
+
+# ── Home Assistant ───────────────────────────────────────────────────────
+# Fresh HA Core running in the same docker-compose stack on the N95.
+# HA_URL env var (set in docker-compose.yml) overrides this URL inside the container.
+
+[home_assistant]
+url = "http://homeassistant:8123"
+token_env = "HA_API_TOKEN"
+
+# ── Sensors ──────────────────────────────────────────────────────────────
+# Empty for now. Add entities here as devices are commissioned in HA.
+# Format:  friendly_name = "sensor.entity_id_from_ha"
+
+[sensors]
+
+# ── Users ────────────────────────────────────────────────────────────────
+
+[[users]]
+id = "fraser"
+name = "Fraser Scholz"
+role = "owner"
+
+[[users]]
+id = "harley"
+name = "Harley Scholz"
+role = "admin"
+
+[[users]]
+id = "matt"
+name = "Matt Scholz"
+role = "member"
+
+# ── Notifications ────────────────────────────────────────────────────────
+
+[[notifications]]
+channel = "pwa_push"
+enabled = true
+urgency_min = "normal"
+
+# ── Energy ───────────────────────────────────────────────────────────────
+# Placeholder — fill in once the new house's tariff and solar setup are known.
+
+[energy]
+peak_rate = 0.0
+offpeak_rate = 0.0
+feed_in_rate = 0.0
+peak_start = "06:00"
+peak_end = "00:00"
+solar_capacity_kw = 0.0
+battery_capacity_kwh = 0.0
+battery_min_soc = 20
+currency = "AUD"
+
+# ── Security ─────────────────────────────────────────────────────────────
+
+[security]
+require_approval_for_writes = true
+max_actions_per_minute = 30
+max_actions_per_hour = 300
+audit_log_retention_days = 90
+safe_file_roots = ["/data/alfe_notes", "/data/reports"]
+
+# ── Boundaries ───────────────────────────────────────────────────────────
+
+[[boundaries]]
+id = "max_daily_spend"
+description = "Max daily API spend before Alf-E self-limits to fast tier only"
+type = "monetary"
+limit = 2.00
+unit = "USD"
+escalation_message = "Daily API spend hit ${value} — switching to fast tier only."
+
+# ── Connectors (loaded by ConnectorRegistry at startup) ──────────────────
+# HA enabled on day one (empty until devices commissioned).
+# Gmail enabled — token must be placed at /data/gmail_token.json on the N95.
+
+[[connectors]]
+id = "ha"
+enabled = true
+
+[[connectors]]
+id = "gmail"
+enabled = true
+user = "fraser.nelec@gmail.com"
+
+[[connectors]]
+id = "bom"
+enabled = true
+geohash = "r7hge7"
+location = "Brisbane"
+
+# ── Scheduled Ops ────────────────────────────────────────────────────────
+
+[[scheduled_ops]]
+id = "morning_briefing"
+name = "Morning Briefing"
+description = "Daily summary for the brothers — calendar, weather, anything pending"
+at_time = "06:30"
+notify_on_complete = true
+
+prompt = """
+Generate a morning briefing for the Scholz Brotherhood. Include:
+1. Today's calendar (once Calendar connector is wired up)
+2. Any unread email worth flagging
+3. Anything anomalous from the last 24 hours
+Keep it tight and friendly — three brothers, not a boardroom.
+"""

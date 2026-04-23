@@ -1,0 +1,43 @@
+# Alf-E — Scholz Brotherhood Edition
+# Runs alongside your existing Home Assistant on the mac mini.
+#
+# First-time setup:
+#   1. cp .env.example .env    ← fill in your Anthropic API key + HA token
+#   2. docker compose up -d
+#   3. Open http://localhost:8099  (login with ALFE_API_TOKEN from .env)
+
+networks:
+  alfe_net:
+    driver: bridge
+
+volumes:
+  alfe_data:
+
+services:
+  alf-e:
+    image: ghcr.io/majorfrazer/alf-e:latest
+    container_name: alf-e
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "8099:8099"
+    volumes:
+      - alfe_data:/data
+      - ./playbooks:/app/playbooks:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - HA_API_TOKEN=${HA_API_TOKEN}
+      - HA_URL=${HA_URL:-http://host.docker.internal:8123}
+      - ALFE_API_TOKEN=${ALFE_API_TOKEN}
+      - ALFE_PLAYBOOK=playbooks/scholz_brotherhood.toml
+      - ALFE_DATA_DIR=/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - alfe_net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -sf -H \"Authorization: Bearer $$ALFE_API_TOKEN\" http://localhost:8099/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
