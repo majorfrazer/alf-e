@@ -23,6 +23,20 @@ class HAConnector:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+        self.active_site: str = "default"   # updated by switch_to when nomadic
+
+    def switch_to(self, base_url: str, token: str, site_name: str = "") -> None:
+        """Point this connector at a different HA instance at runtime.
+
+        Used by the nomadic playbook's ha_switch_site tool so Fraser can hop
+        between his own N95 HA and any client's Nabu Casa Cloud URL without
+        restarting the container.
+        """
+        self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.headers["Authorization"] = f"Bearer {token}"
+        if site_name:
+            self.active_site = site_name
 
     # ── Read Operations ──────────────────────────────────────────────────
 

@@ -89,6 +89,7 @@ class ConnectorRegistry:
                     "url":       getattr(ha_cfg, "url", ""),
                     "token_env": getattr(ha_cfg, "token_env", "HA_API_TOKEN"),
                     "sensors":   dict(self.playbook.sensors) if hasattr(self.playbook, "sensors") else {},
+                    "ha_sites":  [s.model_dump() for s in getattr(self.playbook, "ha_sites", [])],
                 })
             return declared
 
@@ -99,6 +100,7 @@ class ConnectorRegistry:
                 "url":       getattr(ha_cfg, "url", ""),
                 "token_env": getattr(ha_cfg, "token_env", "HA_API_TOKEN"),
                 "sensors":   dict(self.playbook.sensors) if hasattr(self.playbook, "sensors") else {},
+                "ha_sites":  [s.model_dump() for s in getattr(self.playbook, "ha_sites", [])],
             }
 
         return declared

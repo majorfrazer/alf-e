@@ -43,6 +43,8 @@ class HAConnector(BaseConnector):
         self._token: str = ""
         self._headers: dict = {}
         self._sensors: dict = config.get("sensors", {})
+        self._sites: list = config.get("ha_sites", [])        # list of {name,url,token_env,owner,notes}
+        self._active_site: str = "default"
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -335,6 +337,35 @@ class HAConnector(BaseConnector):
                 approval_tier="autonomous",
             ),
             ToolDefinition(
+                name="ha_list_sites",
+                description=(
+                    "List all Home Assistant sites Fraser can hop between (nomadic mode). "
+                    "Returns each site's name, owner, URL, and notes. Also shows which site is currently active."
+                ),
+                input_schema={"type": "object", "properties": {}},
+                approval_tier="autonomous",
+            ),
+            ToolDefinition(
+                name="ha_switch_site",
+                description=(
+                    "Switch the active Home Assistant target to a different site — for nomadic use when Fraser "
+                    "is installing or fixing HA at someone else's place. Reads the site's URL + token from the "
+                    "playbook's ha_sites list and re-points the connector in-place (no restart needed). "
+                    "After switching, all ha_* tools talk to the new HA instance until switched back."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Site slug from ha_list_sites (e.g. 'home', 'brotherhood').",
+                        },
+                    },
+                    "required": ["name"],
+                },
+                approval_tier="confirm",
+            ),
+            ToolDefinition(
                 name="ha_get_logbook",
                 description=(
                     "Get recent logbook entries from HA — who triggered what and when. "
@@ -458,6 +489,12 @@ class HAConnector(BaseConnector):
                     hours=inp.get("hours", 12),
                     entity_id=inp.get("entity_id"),
                 )
+
+            elif name == "ha_list_sites":
+                return self._list_sites()
+
+            elif name == "ha_switch_site":
+                return self._switch_site(inp["name"])
 
             else:
                 return ConnectorResult(success=False, content=f"Unknown tool: {name}")
@@ -789,6 +826,49 @@ class HAConnector(BaseConnector):
             return ConnectorResult(success=True, content="\n".join(lines))
         except Exception as e:
             return ConnectorResult(success=False, content=f"Error fetching logbook: {e}")
+
+    # ── Nomadic site switching ────────────────────────────────────────────
+
+    def _list_sites(self) -> ConnectorResult:
+        if not self._sites:
+            return ConnectorResult(
+                success=True,
+                content="No ha_sites declared in playbook. Add a [[ha_sites]] block to hop between HA instances.",
+            )
+        lines = [f"HA sites (active: {self._active_site}):"]
+        for s in self._sites:
+            owner = f" — {s.get('owner')}" if s.get("owner") else ""
+            notes = f"  ({s.get('notes')})" if s.get("notes") else ""
+            lines.append(f"  • {s.get('name')}{owner}  →  {s.get('url')}{notes}")
+        return ConnectorResult(success=True, content="\n".join(lines))
+
+    def _switch_site(self, name: str) -> ConnectorResult:
+        site = next((s for s in self._sites if s.get("name") == name), None)
+        if not site:
+            available = ", ".join(s.get("name", "?") for s in self._sites) or "(none)"
+            return ConnectorResult(
+                success=False,
+                content=f"No HA site named '{name}'. Available: {available}",
+            )
+        url   = site.get("url", "")
+        token = self._env(site.get("token_env", "HA_API_TOKEN"))
+        if not url or not token:
+            return ConnectorResult(
+                success=False,
+                content=f"Site '{name}' missing url or token (env {site.get('token_env')}).",
+            )
+        self._base_url = url.rstrip("/")
+        self._token    = token
+        self._headers["Authorization"] = f"Bearer {token}"
+        self._active_site = name
+        ok = self.health_check()
+        if not ok:
+            return ConnectorResult(
+                success=False,
+                content=f"Switched to '{name}' but health check failed — URL/token may be wrong.",
+            )
+        logger.info(f"HA connector switched to site '{name}' @ {self._base_url}")
+        return ConnectorResult(success=True, content=f"Active HA is now '{name}' ({url}).")
 
     # ── Legacy compatibility (for code that still imports ha_connector) ───
 

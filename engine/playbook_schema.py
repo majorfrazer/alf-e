@@ -83,6 +83,15 @@ class HomeAssistantConfig(BaseModel):
     token_env: str
 
 
+class HaSite(BaseModel):
+    """A switchable Home Assistant target (for nomadic use — multiple client HA instances)."""
+    name: str                                # short slug, used by ha_switch_site tool
+    url: str                                 # http://host:8123 or Nabu Casa URL
+    token_env: str = "HA_API_TOKEN"          # env var holding the long-lived token
+    owner: str = ""                          # whose HA is this (human-readable)
+    notes: str = ""                          # freeform reminder for Fraser
+
+
 class ConnectorConfig(BaseModel):
     """External service connector (HA, Gmail, Tesla, etc.)"""
     model_config = {"extra": "allow"}   # pass unknown TOML keys through to connector __init__
@@ -211,6 +220,7 @@ class PlaybookConfig(BaseModel):
 
     # Home Assistant integration
     home_assistant: Optional[HomeAssistantConfig] = None
+    ha_sites: List[HaSite] = Field(default_factory=list)
     sensors: Dict[str, str] = Field(default_factory=dict)
 
     # Energy config

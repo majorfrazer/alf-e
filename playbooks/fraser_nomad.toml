@@ -1,0 +1,228 @@
+[metadata]
+name = "Fraser's Nomadic N95"
+description = "Fraser on the road — living proof of concept, installing Alf-E + HA for family, friends, and small businesses across Australia."
+version = "1.0.0"
+owner = "Fraser Cole"
+timezone = "Australia/Brisbane"
+
+personality_prompt = """
+You are Alf-E: Fraser Cole's personal AI sidekick — think JARVIS to his Iron Man.
+You run on a portable Intel N100 mini-PC (the N95) that travels with him.
+
+WHO FRASER IS:
+- Roving installer + demonstrator. Travelling Australia introducing Alf-E + Home
+  Assistant to family, friends, and small businesses — usually setting them up
+  with their own N100-style mini-PC.
+- Home base: Ormeau / Brisbane. That house has its own Alf-E (Cole Family Sandbox)
+  on separate hardware — don't confuse the two.
+- This N95 is his "living proof of concept" — a real working demo he points at
+  when someone asks "what does this actually do?"
+
+YOUR JOB:
+- Be his sidekick, not the star. He's the one selling it; you back him up with
+  facts, diagnostics, and code generation on demand.
+- When he's commissioning someone else's HA: help debug, write playbooks, draft
+  automations, refactor YAML.
+- Keep him aware of his own stuff: iPhone battery/location/SSID, inbox, weather.
+- Remember: multiple HA instances — his N95 local HA plus Nabu Casa URLs for
+  every client site. Use ha_list_sites / ha_switch_site to hop between them.
+
+PERSONALITY:
+- Cheeky Australian (hints of NZ and Canadian). Dry humour welcome but never forced.
+- Honest about limitations — black-and-white options, no sugarcoating.
+- You're a mate. Talk like one.
+- Iron Man / JARVIS dynamic: competent, slightly dry, briefly witty, never grovelling.
+
+CONTEXT AWARENESS:
+- This N95 moves around. Timezone defaults to Brisbane but Fraser may be anywhere.
+- Before answering weather/location questions, check fraser_phone_ssid and
+  fraser_phone_location (Apple Blossom) — they're the ground truth for "where is he right now".
+- If someone's HA has a bug, don't just read — help him fix it. Suggest YAML,
+  write automations, spot misconfigured entities.
+
+RESPONSE RULES:
+- Never repeat the same opening phrase twice in a conversation.
+- Do not re-list your capabilities or connector status unless explicitly asked.
+- Keep responses tight. If you've already explained something this session,
+  reference it briefly rather than restating.
+- One answer per question — no padding with a full status dump.
+"""
+
+# ── AI Providers ─────────────────────────────────────────────────────────
+# Same ladder as cole_sandbox: Gemini default (cheaper) + Claude fallback.
+
+[llm.default]
+provider = "google"
+model = "gemini-2.0-flash"
+api_key_env = "GOOGLE_API_KEY"
+max_tokens = 4096
+temperature = 0.7
+cost_per_1k_input = 0.00125
+cost_per_1k_output = 0.01
+capabilities = ["general", "reasoning", "analysis"]
+
+[llm.fast]
+provider = "google"
+model = "gemini-2.0-flash"
+api_key_env = "GOOGLE_API_KEY"
+max_tokens = 1500
+temperature = 0.7
+cost_per_1k_input = 0.00125
+cost_per_1k_output = 0.01
+capabilities = ["quick", "status"]
+
+[llm.heavy]
+provider = "google"
+model = "gemini-2.0-flash"
+api_key_env = "GOOGLE_API_KEY"
+max_tokens = 8192
+temperature = 0.5
+cost_per_1k_input = 0.00125
+cost_per_1k_output = 0.01
+capabilities = ["reasoning", "analysis", "code"]
+
+[llm.claude_fallback]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 2000
+temperature = 0.7
+cost_per_1k_input = 0.0008
+cost_per_1k_output = 0.004
+capabilities = ["general", "fallback"]
+
+[llm.offline]
+provider = "ollama"
+model = "llama3.2"
+api_key_env = "OLLAMA_UNUSED"
+max_tokens = 2000
+temperature = 0.7
+cost_per_1k_input = 0.0
+cost_per_1k_output = 0.0
+capabilities = ["general", "offline"]
+
+# ── Home Assistant (the N95's own HA — default on boot) ──────────────────
+
+[home_assistant]
+url = "http://homeassistant:8123"
+token_env = "HA_API_TOKEN"
+
+# ── HA Sites (switchable targets for nomadic installs) ───────────────────
+# Tool `ha_switch_site` hops between these without a restart.
+# Each site needs its own env var holding a long-lived HA token.
+# Add a new [[ha_sites]] block each time Fraser commissions a client.
+
+[[ha_sites]]
+name = "home"
+owner = "Fraser (this N95)"
+url = "http://homeassistant:8123"
+token_env = "HA_API_TOKEN"
+notes = "The N95's own HA — default site loaded on boot."
+
+[[ha_sites]]
+name = "cole_sandbox"
+owner = "Cole household (Ormeau)"
+url = "https://xscydqtpjre3sxxwnt6irbmy6tnmnjeo.ui.nabu.casa"
+token_env = "HA_TOKEN_COLE"
+notes = "Fraser's home base — solar, Tesla, Shelly EMs."
+
+# Placeholder slots — fill in as clients are commissioned.
+# [[ha_sites]]
+# name = "brotherhood"
+# owner = "Harley & Matt (Scholz)"
+# url = "https://<their>.ui.nabu.casa"
+# token_env = "HA_TOKEN_BROTHERHOOD"
+# notes = "First gift install — mac mini + N95 combo."
+
+# ── Sensors (Fraser's iPhone — Apple Blossom) ────────────────────────────
+
+[sensors]
+fraser_phone_battery       = "sensor.apple_blossom_battery_level"
+fraser_phone_battery_state = "sensor.apple_blossom_battery_state"
+fraser_phone_location      = "device_tracker.apple_blossom"
+fraser_phone_ssid          = "sensor.apple_blossom_ssid"
+fraser_phone_storage       = "sensor.apple_blossom_storage"
+
+# ── Users ────────────────────────────────────────────────────────────────
+
+[[users]]
+id = "fraser"
+name = "Fraser"
+role = "owner"
+
+# ── Notifications ────────────────────────────────────────────────────────
+
+[[notifications]]
+channel = "pwa_push"
+enabled = true
+urgency_min = "normal"
+
+# ── Energy (placeholder — no tariff on the N95 itself) ───────────────────
+
+[energy]
+peak_rate = 0.0
+offpeak_rate = 0.0
+feed_in_rate = 0.0
+peak_start = "06:00"
+peak_end = "00:00"
+solar_capacity_kw = 0.0
+battery_capacity_kwh = 0.0
+battery_min_soc = 20
+currency = "AUD"
+
+# ── Security ─────────────────────────────────────────────────────────────
+
+[security]
+require_approval_for_writes = true
+max_actions_per_minute = 30
+max_actions_per_hour = 300
+audit_log_retention_days = 90
+safe_file_roots = ["/data/alfe_notes", "/data/reports"]
+
+# ── Boundaries ───────────────────────────────────────────────────────────
+
+[[boundaries]]
+id = "max_daily_spend"
+description = "Max daily API spend before Alf-E self-limits to fast tier only"
+type = "monetary"
+limit = 2.00
+unit = "USD"
+escalation_message = "Daily API spend hit ${value} — switching to fast tier only."
+
+# ── Connectors ───────────────────────────────────────────────────────────
+
+[[connectors]]
+id = "ha"
+enabled = true
+# url + token_env inherited from [home_assistant]; ha_sites list auto-threaded in.
+
+[[connectors]]
+id = "gmail"
+enabled = true
+user = "alfe.cole@gmail.com"
+
+[[connectors]]
+id = "bom"
+enabled = true
+geohash = "r7hge7"
+location = "Brisbane"
+# Fallback to Brisbane if Apple Blossom's location can't resolve.
+
+# ── Scheduled Ops ────────────────────────────────────────────────────────
+
+[[scheduled_ops]]
+id = "morning_briefing"
+name = "Morning Briefing"
+description = "Daily summary for Fraser on the road"
+at_time = "06:30"
+notify_on_complete = true
+
+prompt = """
+Generate a morning briefing for Fraser. Include:
+1. Where he is (check fraser_phone_ssid / fraser_phone_location)
+2. Today's weather for that location (fall back to Brisbane if unsure)
+3. Any calendar events today
+4. Any unread email worth flagging
+5. Which client HA sites, if any, need attention
+Keep it concise and friendly. Sidekick tone, not boardroom.
+"""
