@@ -555,11 +555,12 @@ OPERATING RULES:
                 break
 
         config_name, config = self.router.route(last_user_msg)
+        tier = config_name  # preserve original tier for fallback escalation
 
         # Google and Ollama don't support tool use — redirect to Anthropic for the
         # agentic loop. CrossDomain uses the router directly and bypasses this path.
         if config.provider.value in ("google", "ollama"):
-            config_name, config = self.router.pick_anthropic_fallback()
+            config_name, config = self.router.pick_anthropic_fallback(tier)
 
         self.last_model_used = config.model
         loop_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
@@ -575,7 +576,7 @@ OPERATING RULES:
             if response.stop_reason == "end_turn":
                 text = ""
                 for block in response.content:
-                    if hasattr(block, "text"):
+                    if getattr(block, "type", None) == "text":
                         text = block.text
                         break
                 if self.memory and response.usage:
@@ -625,11 +626,12 @@ OPERATING RULES:
                 break
 
         config_name, config = self.router.route(last_user_msg)
+        tier = config_name  # preserve for tier-aware fallback escalation
         self.last_model_used = config.model
 
         # Google and Ollama don't support tool use — redirect to Anthropic
         if config.provider.value in ("google", "ollama"):
-            config_name, config = self.router.pick_anthropic_fallback()
+            config_name, config = self.router.pick_anthropic_fallback(tier)
             self.last_model_used = config.model
 
         api_key = os.getenv(config.api_key_env, "")
@@ -643,13 +645,17 @@ OPERATING RULES:
         for _ in range(10):
             full_text = ""
 
-            with client.messages.stream(
+            stream_kwargs = dict(
                 model=config.model,
                 max_tokens=config.max_tokens,
                 messages=loop_messages,
                 system=system_prompt,
                 tools=self._get_tools(),
-            ) as stream:
+            )
+            if config.thinking_budget_tokens:
+                stream_kwargs["thinking"] = {"type": "enabled", "budget_tokens": config.thinking_budget_tokens}
+
+            with client.messages.stream(**stream_kwargs) as stream:
                 for chunk in stream.text_stream:
                     full_text += chunk
                     yield ("token", chunk)

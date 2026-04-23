@@ -75,6 +75,7 @@ class LLMConfig(BaseModel):
     cost_per_1k_input: float = 0.0    # USD per 1K input tokens
     cost_per_1k_output: float = 0.0   # USD per 1K output tokens
     capabilities: List[str] = Field(default_factory=list)  # e.g. ["code", "reasoning", "quick"]
+    thinking_budget_tokens: Optional[int] = None  # if set, enables extended thinking (Opus only)
 
 
 class HomeAssistantConfig(BaseModel):

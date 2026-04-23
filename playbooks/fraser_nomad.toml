@@ -81,7 +81,10 @@ cost_per_1k_input = 0.00125
 cost_per_1k_output = 0.01
 capabilities = ["reasoning", "analysis", "code"]
 
-[llm.claude_fallback]
+# ── Anthropic tiers (used for all live chat + tool-use — Google can't do tools) ──
+# Router maps: fast→claude_fast, default→claude_default, heavy→claude_heavy
+
+[llm.claude_fast]
 provider = "anthropic"
 model = "claude-haiku-4-5-20251001"
 api_key_env = "ANTHROPIC_API_KEY"
@@ -89,7 +92,28 @@ max_tokens = 2000
 temperature = 0.7
 cost_per_1k_input = 0.0008
 cost_per_1k_output = 0.004
-capabilities = ["general", "fallback"]
+capabilities = ["quick", "status", "fallback"]
+
+[llm.claude_default]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 8192
+temperature = 0.7
+cost_per_1k_input = 0.003
+cost_per_1k_output = 0.015
+capabilities = ["general", "reasoning", "analysis", "code"]
+
+[llm.claude_heavy]
+provider = "anthropic"
+model = "claude-opus-4-7"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 16000
+temperature = 0.5
+cost_per_1k_input = 0.015
+cost_per_1k_output = 0.075
+capabilities = ["reasoning", "analysis", "code", "architecture"]
+thinking_budget_tokens = 8000
 
 [llm.offline]
 provider = "ollama"

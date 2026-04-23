@@ -68,12 +68,29 @@ class ModelRouter:
         name = next(iter(self.configs))
         return name, self.configs[name]
 
-    def pick_anthropic_fallback(self) -> tuple[str, LLMConfig]:
-        """Return the first Anthropic config available — used when Google/Ollama fail."""
+    def pick_anthropic_fallback(self, tier: str = "default") -> tuple[str, LLMConfig]:
+        """Return the best Anthropic config for the given tier.
+
+        Tries tier-specific Claude configs first (claude_fast / claude_default /
+        claude_heavy), then any Anthropic config, then falls back to default.
+        This preserves the fast→Haiku, default→Sonnet, heavy→Opus escalation even
+        when Google/Ollama are the primary providers.
+        """
+        preference = {
+            "fast":    ["claude_fast",    "claude_default", "claude_heavy"],
+            "default": ["claude_default", "claude_heavy",   "claude_fast"],
+            "heavy":   ["claude_heavy",   "claude_default", "claude_fast"],
+        }.get(tier, ["claude_default", "claude_heavy", "claude_fast"])
+
+        for candidate in preference:
+            if candidate in self.configs and self.configs[candidate].provider.value == "anthropic":
+                return candidate, self.configs[candidate]
+
+        # Fall through: any Anthropic config
         for name, cfg in self.configs.items():
             if cfg.provider.value == "anthropic":
                 return name, cfg
-        # No anthropic config — return default and hope for the best
+
         return self._pick_config("default")
 
     def route(self, user_input: str) -> tuple[str, LLMConfig]:
@@ -115,6 +132,8 @@ class ModelRouter:
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = tools
+        if config.thinking_budget_tokens:
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": config.thinking_budget_tokens}
 
         return client.messages.create(**kwargs)
 
