@@ -30,7 +30,7 @@
 }
 
 # Portainer
-:9001 {
+:9002 {
   tls internal
   reverse_proxy portainer:9000
 }
