@@ -52,7 +52,7 @@ services:
       - B2_BUCKET=${B2_BUCKET:-}
       - B2_PREFIX=${B2_PREFIX:-alfe-backups}
       - RCLONE_REMOTE=${RCLONE_REMOTE:-b2}
-      - ALFE_PLAYBOOK=${ALFE_PLAYBOOK:-playbooks/scholz_brotherhood.toml}
+      - ALFE_PLAYBOOK=${ALFE_PLAYBOOK:-playbooks/fraser_nomad.toml}
       - ALFE_DATA_DIR=/data
       - OLLAMA_HOST=http://ollama:11434
     depends_on:

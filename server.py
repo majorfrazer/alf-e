@@ -49,7 +49,7 @@ logger = logging.getLogger("alfe.server")
 
 # ── Load playbook ────────────────────────────────────────────────────────────
 
-PLAYBOOK_PATH = Path(os.getenv("ALFE_PLAYBOOK", "playbooks/scholz_brotherhood.toml"))
+PLAYBOOK_PATH = Path(os.getenv("ALFE_PLAYBOOK", "playbooks/example_household.toml"))
 
 playbook: PlaybookConfig = None
 router: ModelRouter = None
@@ -65,6 +65,11 @@ cross_domain: CrossDomainEngine = None
 async def lifespan(app: FastAPI):
     """Initialise services on startup."""
     global playbook, router, ha, memory, agent, registry, scheduler, cross_domain
+
+    # Boot time for health endpoint uptime tracking
+    global _BOOT_TIME
+    import time as _time
+    _BOOT_TIME = _time.time()
 
     # Playbook
     try:
@@ -482,6 +487,51 @@ async def request_restart():
     return {"status": "restart_requested"}
 
 
+@app.post("/api/playbook/reload")
+async def reload_playbook():
+    """Hot-reload the playbook from disk without restarting the container.
+
+    Reloads personality_prompt, sensors, ha_sites, boundaries, and scheduled_ops.
+    Does NOT reload LLM provider configs or connector enable/disable — those
+    still require a container restart.
+    """
+    global playbook
+    try:
+        new_pb = load_playbook(PLAYBOOK_PATH)
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to parse playbook: {e}"}
+
+    changed = []
+    if playbook and new_pb.personality_prompt != playbook.personality_prompt:
+        changed.append("personality_prompt")
+    if playbook and dict(new_pb.sensors) != dict(playbook.sensors):
+        changed.append("sensors")
+    if playbook and [s.model_dump() for s in new_pb.ha_sites] != [s.model_dump() for s in playbook.ha_sites]:
+        changed.append("ha_sites")
+
+    playbook = new_pb
+
+    # Thread new references through live components
+    if agent:
+        agent.playbook = new_pb
+    if registry:
+        registry.playbook = new_pb
+        # Re-thread ha_sites into the ha connector if loaded
+        ha_conn = registry._connectors.get("ha") if hasattr(registry, "_connectors") else None
+        if ha_conn:
+            ha_conn._sites = [s.model_dump() for s in new_pb.ha_sites]
+    if scheduler:
+        scheduler.set_ops(new_pb.scheduled_ops)
+
+    logger.info(f"Playbook reloaded: {new_pb.name} v{new_pb.version} (changed: {changed or 'none'})")
+    return {
+        "status": "ok",
+        "playbook": new_pb.name,
+        "version": new_pb.version,
+        "changed": changed,
+    }
+
+
 # ── Memory Export (Claude Code bridge) ───────────────────────────────────────
 
 @app.get("/api/memory/export")
@@ -558,6 +608,50 @@ async def get_status():
         "message_count": memory.get_message_count() if memory else 0,
         "cost_30d":      cost,
         "providers":     list(playbook.llm.keys()) if playbook else [],
+    }
+
+
+# ── Health Endpoint ─────────────────────────────────────────────────────────
+
+_BOOT_TIME = None  # set on startup
+
+
+@app.get("/api/health")
+async def get_health():
+    """Compact health summary for the PWA dashboard."""
+    import time
+    now = time.time()
+    uptime_s = int(now - _BOOT_TIME) if _BOOT_TIME else 0
+
+    # Connector health
+    conn_ok, conn_total = 0, 0
+    if registry:
+        for c in registry.get_status():
+            conn_total += 1
+            if c.get("connected"):
+                conn_ok += 1
+
+    # Memory DB size
+    db_size_mb = 0.0
+    if memory:
+        try:
+            db_size_mb = round(Path(memory.db_path).stat().st_size / 1024 / 1024, 2)
+        except Exception:
+            pass
+
+    # Cost: today (24h) and 30d
+    cost_24h = memory.get_cost_summary(1) if memory else {"total_usd": 0}
+    cost_30d = memory.get_cost_summary(30) if memory else {"total_usd": 0}
+
+    return {
+        "uptime_seconds": uptime_s,
+        "connectors":     {"ok": conn_ok, "total": conn_total},
+        "memory":         {"messages": memory.get_message_count() if memory else 0,
+                           "db_size_mb": db_size_mb},
+        "cost":           {"last_24h_usd":  round(cost_24h.get("total_usd", 0), 4),
+                           "last_30d_usd":  round(cost_30d.get("total_usd", 0), 4)},
+        "scheduler":      scheduler.get_status() if scheduler else {},
+        "playbook":       {"name": playbook.name, "version": playbook.version} if playbook else {},
     }
 
 

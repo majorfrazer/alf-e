@@ -33,6 +33,12 @@ class Scheduler:
         """Attach the Alf-E agent for executing scheduled prompts."""
         self._agent = agent
 
+    def set_ops(self, ops: list) -> None:
+        """Replace the scheduled ops list at runtime (for playbook hot-reload)."""
+        self.ops = ops
+        self._fired_today.clear()
+        logger.info(f"Scheduler ops reloaded: {len(ops)} op(s)")
+
     def start(self) -> None:
         """Start the background scheduler loop."""
         if not self.ops:

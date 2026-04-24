@@ -32,7 +32,7 @@ function showLogin() {
             <div style="background:#1a1a1a;border:1px solid #333;border-radius:12px;padding:40px;width:320px;text-align:center;">
                 <div style="font-size:28px;margin-bottom:8px;">⚡</div>
                 <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px;">Alf-E</div>
-                <div style="font-size:13px;color:#888;margin-bottom:28px;">Scholz Brotherhood</div>
+                <div style="font-size:13px;color:#888;margin-bottom:28px;">Self-hosted AI Agent</div>
                 <input id="token-input" type="password" placeholder="API Token"
                     style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;
                            border:1px solid #444;background:#111;color:#fff;font-size:14px;margin-bottom:12px;" />

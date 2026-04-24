@@ -116,7 +116,7 @@ def test_memory_cost_tracking():
 
 def test_model_router_tier_classification():
     """Router classifies tasks into correct tiers."""
-    pb = load_playbook(Path("playbooks/scholz_brotherhood.toml"))
+    pb = load_playbook(Path("playbooks/example_household.toml"))
     router = ModelRouter(pb.llm)
 
     _, fast_config = router.route("What's the weather?")
