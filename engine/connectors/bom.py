@@ -143,7 +143,41 @@ class BOMConnector(BaseConnector):
                 input_schema={"type": "object", "properties": {}},
                 approval_tier="autonomous",
             ),
+            ToolDefinition(
+                name="bom_set_location",
+                description=(
+                    "Switch the active BOM weather location — for nomadic use when Fraser is "
+                    "in a different city. Takes either a 6-char BOM geohash OR a friendly name like "
+                    "'Sydney' / 'Melbourne'. Common Australian cities are pre-mapped. After switching, "
+                    "all bom_* tools query the new location until switched back."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "BOM geohash (e.g. 'r7hge7') OR city name (e.g. 'Sydney')",
+                        },
+                    },
+                    "required": ["location"],
+                },
+                approval_tier="autonomous",
+            ),
         ]
+
+    # Common Australian capitals + major cities — expand as needed.
+    CITY_GEOHASHES = {
+        "brisbane":  ("r7hge7", "Brisbane"),
+        "sydney":    ("r3gx2f", "Sydney"),
+        "melbourne": ("r1r11df","Melbourne"),
+        "perth":     ("qd66hrh","Perth"),
+        "adelaide":  ("r1f9540","Adelaide"),
+        "hobart":    ("r22k2te","Hobart"),
+        "darwin":    ("qqgcms0","Darwin"),
+        "canberra":  ("r3dp5hf","Canberra"),
+        "gold coast":("r7h6nys","Gold Coast"),
+        "cairns":    ("rqgxfwb","Cairns"),
+    }
 
     # ── Dispatch ───────────────────────────────────────────────────────────
 
@@ -153,6 +187,7 @@ class BOMConnector(BaseConnector):
             "bom_forecast_daily":   self._forecast_daily,
             "bom_forecast_hourly":  self._forecast_hourly,
             "bom_warnings":         self._warnings,
+            "bom_set_location":     self._set_location,
         }
         handler = handlers.get(name)
         if not handler:
@@ -254,3 +289,32 @@ class BOMConnector(BaseConnector):
             issued = w.get("issue_time", "")[:16].replace("T", " ")
             out.append(f"  • [{warning_type}] {title} (issued {issued})")
         return ConnectorResult(success=True, content="\n".join(out))
+
+    def _set_location(self, inp: dict) -> ConnectorResult:
+        loc = (inp.get("location") or "").strip()
+        if not loc:
+            return ConnectorResult(success=False, content="location is required")
+
+        # 6-char geohash detection: alphanumeric lowercase base32, length 5-7
+        if 5 <= len(loc) <= 7 and loc.isalnum() and loc.islower():
+            geohash = loc
+            name    = loc
+        else:
+            key = loc.lower()
+            hit = self.CITY_GEOHASHES.get(key)
+            if not hit:
+                known = ", ".join(sorted(self.CITY_GEOHASHES.keys()))
+                return ConnectorResult(
+                    success=False,
+                    content=f"Unknown city '{loc}'. Known: {known}. Or pass a BOM geohash directly.",
+                )
+            geohash, name = hit
+
+        self._geohash  = geohash
+        self._location = name
+        # Test the new location actually resolves
+        ok = self.health_check()
+        if not ok:
+            return ConnectorResult(success=False, content=f"Switched to {name} but BOM API didn't respond — geohash may be invalid.")
+        logger.info(f"BOM location switched: {name} ({geohash})")
+        return ConnectorResult(success=True, content=f"Weather location is now {name} (geohash={geohash}).")

@@ -44,6 +44,9 @@ class ConnectorRegistry:
         self.playbook = playbook
         self._connectors: dict[str, BaseConnector] = {}  # connector_id → instance
         self._tool_map: dict[str, str] = {}              # tool_name → connector_id
+        self._budgets: dict[str, int] = {}               # connector_id → max calls/day (0 = unlimited)
+        self._call_counts: dict[str, int] = {}           # connector_id → calls today
+        self._count_date: str = ""                       # YYYY-MM-DD of _call_counts
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -111,6 +114,12 @@ class ConnectorRegistry:
         if not module_path:
             logger.warning(f"No module registered for connector_id={connector_id!r}")
             return
+
+        # Budget: pull max_calls_per_day from playbook config (0 = unlimited)
+        budget = int(config.get("max_calls_per_day", 0) or 0)
+        if budget:
+            self._budgets[connector_id] = budget
+            logger.info(f"Connector {connector_id!r} budget: {budget} calls/day")
 
         try:
             module = importlib.import_module(module_path)
@@ -189,9 +198,31 @@ class ConnectorRegistry:
                 success=False,
                 content=f"Unknown tool: {tool_name!r}. Available: {sorted(self._tool_map.keys())}",
             )
+
+        # ── Budget check (daily rolling) ──────────────────────────────────
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today != self._count_date:
+            self._call_counts.clear()
+            self._count_date = today
+
+        limit = self._budgets.get(connector_id, 0)
+        used  = self._call_counts.get(connector_id, 0)
+        if limit and used >= limit:
+            logger.warning(f"Connector {connector_id!r} hit daily call limit ({limit}) — blocking {tool_name}")
+            return ConnectorResult(
+                success=False,
+                content=(
+                    f"Budget exceeded: {connector_id} has hit its daily call limit ({limit}). "
+                    f"Raise max_calls_per_day in the playbook to increase."
+                ),
+            )
+
         connector = self._connectors[connector_id]
         try:
-            return connector.execute_tool(tool_name, inp, user_id)
+            result = connector.execute_tool(tool_name, inp, user_id)
+            self._call_counts[connector_id] = used + 1
+            return result
         except Exception as e:
             logger.error(f"Unhandled error in {connector_id}.execute_tool({tool_name!r}): {e}")
             return ConnectorResult(success=False, content=f"Internal error: {e}")
