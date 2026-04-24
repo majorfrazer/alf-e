@@ -33,6 +33,9 @@ volumes:
   filebrowser_db:
   portainer_data:
   uptime_kuma_data:
+  vaultwarden_data:
+  mosquitto_data:
+  mosquitto_log:
 
 services:
 
@@ -185,6 +188,43 @@ services:
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
       - WATCHTOWER_IGNORE_IMAGES=alf-e
+    networks:
+      - alfe_net
+
+  # ── Vaultwarden (self-hosted password / token vault) ──────────────────────
+  # Access at http://192.168.0.17:8181
+  # Set VAULTWARDEN_ADMIN_TOKEN in .env to enable /admin panel
+  # Use this to store all client HA tokens — one vault, all sites
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    ports:
+      - "8181:80"
+    volumes:
+      - vaultwarden_data:/data
+    environment:
+      - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
+      - SIGNUPS_ALLOWED=false
+      - INVITATIONS_ALLOWED=true
+      - DOMAIN=http://192.168.0.17:8181
+    networks:
+      - alfe_net
+
+  # ── Mosquitto MQTT Broker ─────────────────────────────────────────────────
+  # Port 1883: standard MQTT  |  Port 9001: WebSocket (HA frontend)
+  # Add to HA: Settings → Integrations → MQTT → 192.168.0.17:1883
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
     networks:
       - alfe_net
 
