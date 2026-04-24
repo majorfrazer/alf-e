@@ -239,7 +239,7 @@ services:
       - vaultwarden_data:/data
     environment:
       - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
-      - SIGNUPS_ALLOWED=false
+      - SIGNUPS_ALLOWED=true
       - INVITATIONS_ALLOWED=true
       - DOMAIN=https://192.168.0.17:8444
     networks:
