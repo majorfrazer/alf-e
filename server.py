@@ -172,7 +172,7 @@ if not _IS_HA_ADDON and not _API_TOKEN:
 
 # Paths that don't need auth (static files, health, docs, first-run setup page)
 # Note: /api/setup still requires token — the page is public, the write is not.
-_PUBLIC_PATHS = {"/", "/setup", "/sw.js", "/docs", "/openapi.json", "/redoc"}
+_PUBLIC_PATHS = {"/", "/setup", "/sw.js", "/docs", "/openapi.json", "/redoc", "/api/health"}
 
 
 @app.middleware("http")
