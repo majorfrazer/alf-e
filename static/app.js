@@ -14,7 +14,98 @@ const state = {
     insightsSeenCount:  parseInt(localStorage.getItem('alfe_insights_seen') || '0'),
     auditVisible:       false,
     sending:            false,
+    ttsEnabled:         localStorage.getItem('alfe_tts') === 'true',
+    micListening:       false,
 };
+
+// ── Voice — Speech Recognition (STT) ─────────────────────────────────────────
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+
+function initVoice() {
+    if (!SpeechRecognition) return; // hide mic on unsupported browsers
+    el('mic-btn').classList.remove('hidden');
+
+    recognition = new SpeechRecognition();
+    recognition.continuous    = false;
+    recognition.interimResults = true;
+    recognition.lang          = 'en-AU';
+
+    recognition.onstart = () => {
+        state.micListening = true;
+        el('mic-btn').classList.add('active');
+        el('message-input').placeholder = 'Listening…';
+    };
+
+    recognition.onresult = (e) => {
+        const transcript = Array.from(e.results)
+            .map(r => r[0].transcript).join('');
+        el('message-input').value = transcript;
+        autoResizeInput();
+        el('send-btn').disabled = transcript.trim() === '';
+    };
+
+    recognition.onend = () => {
+        state.micListening = false;
+        el('mic-btn').classList.remove('active');
+        el('message-input').placeholder = 'Message Alf-E…';
+        // Auto-submit if we got something
+        const text = el('message-input').value.trim();
+        if (text) el('chat-form').requestSubmit();
+    };
+
+    recognition.onerror = (e) => {
+        state.micListening = false;
+        el('mic-btn').classList.remove('active');
+        el('message-input').placeholder = 'Message Alf-E…';
+        console.warn('[Voice] STT error:', e.error);
+    };
+}
+
+function toggleMic() {
+    if (!recognition) return;
+    if (state.micListening) {
+        recognition.stop();
+    } else {
+        el('message-input').value = '';
+        recognition.start();
+    }
+}
+
+// ── Voice — Text-to-Speech (TTS) ─────────────────────────────────────────────
+
+function stripMarkdown(text) {
+    return text
+        .replace(/```[\s\S]*?```/g, 'code block omitted')
+        .replace(/`[^`]+`/g, '')
+        .replace(/#{1,6}\s/g, '')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/^\s*[-*+]\s/gm, '')
+        .replace(/^\s*\d+\.\s/gm, '')
+        .replace(/\n{2,}/g, '. ')
+        .trim();
+}
+
+function speakText(text) {
+    if (!state.ttsEnabled || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const clean = stripMarkdown(text);
+    if (!clean) return;
+    const utt = new SpeechSynthesisUtterance(clean.slice(0, 800));
+    utt.lang = 'en-AU';
+    utt.rate = 1.05;
+    window.speechSynthesis.speak(utt);
+}
+
+function toggleTTS() {
+    state.ttsEnabled = !state.ttsEnabled;
+    localStorage.setItem('alfe_tts', state.ttsEnabled);
+    el('tts-btn').classList.toggle('active', state.ttsEnabled);
+    if (!state.ttsEnabled) window.speechSynthesis?.cancel();
+}
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -398,6 +489,7 @@ async function sendMessage(text) {
                     saveConvPreview(state.conversationId, text.trim());
                     saveMessages(state.conversationId);
                     renderMessages();
+                    speakText(assistantMsg.content);
 
                 } else if (data.type === 'error') {
                     assistantMsg.content  = `Error: ${escHtml(data.content)}`;
@@ -827,6 +919,12 @@ function init() {
         toggleAuditDrawer();
         if (state.auditVisible) loadAudit();
     });
+    el('mic-btn').addEventListener('click', toggleMic);
+    el('tts-btn').addEventListener('click', toggleTTS);
+
+    // Voice setup
+    initVoice();
+    el('tts-btn').classList.toggle('active', state.ttsEnabled);
 
     // Status + sensor + insights polling
     loadStatus();

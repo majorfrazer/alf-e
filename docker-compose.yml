@@ -41,6 +41,8 @@ volumes:
   caddy_data:
   caddy_config:
   qdrant_data:
+  whisper_data:
+  piper_data:
 
 services:
 
@@ -134,6 +136,36 @@ services:
     volumes:
       - ha_config:/srv                      # HA config folder exposed as root
       - filebrowser_db:/database            # persists settings + users
+    networks:
+      - alfe_net
+
+  # ── Wyoming Faster Whisper (STT for HA Assist voice pipeline) ────────────
+  # Wyoming protocol on port 10300 — add via HA → Integrations → Wyoming
+  # Downloads 'base' model (~150MB) on first start
+  wyoming-whisper:
+    image: rhasspy/wyoming-faster-whisper
+    container_name: wyoming-whisper
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - whisper_data:/data
+    command: --model base --language en --uri tcp://0.0.0.0:10300
+    networks:
+      - alfe_net
+
+  # ── Wyoming Piper (TTS for HA Assist voice pipeline) ─────────────────────
+  # Wyoming protocol on port 10200 — add via HA → Integrations → Wyoming
+  # Downloads en_US-lessac-medium voice (~60MB) on first start
+  wyoming-piper:
+    image: rhasspy/wyoming-piper
+    container_name: wyoming-piper
+    restart: unless-stopped
+    ports:
+      - "10200:10200"
+    volumes:
+      - piper_data:/data
+    command: --voice en_US-lessac-medium --uri tcp://0.0.0.0:10200
     networks:
       - alfe_net
 

@@ -578,6 +578,10 @@ html, body {
 .send-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .send-btn:disabled { background: var(--surface3); cursor: not-allowed; opacity: 0.6; }
 
+/* ── Mic button ───────────────────────────────────────────────────────────── */
+@keyframes mic-pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+.mic-btn.active { color: var(--accent); animation: mic-pulse 1s ease-in-out infinite; }
+
 /* ── Icon button ──────────────────────────────────────────────────────────── */
 .btn-icon {
     width: 36px;
