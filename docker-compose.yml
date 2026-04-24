@@ -143,7 +143,7 @@ services:
   # Wyoming protocol on port 10300 — add via HA → Integrations → Wyoming
   # Downloads 'base' model (~150MB) on first start
   wyoming-whisper:
-    image: rhasspy/wyoming-faster-whisper
+    image: ghcr.io/rhasspy/wyoming-faster-whisper
     container_name: wyoming-whisper
     restart: unless-stopped
     ports:
@@ -158,7 +158,7 @@ services:
   # Wyoming protocol on port 10200 — add via HA → Integrations → Wyoming
   # Downloads en_US-lessac-medium voice (~60MB) on first start
   wyoming-piper:
-    image: rhasspy/wyoming-piper
+    image: ghcr.io/rhasspy/wyoming-piper
     container_name: wyoming-piper
     restart: unless-stopped
     ports:
