@@ -7,48 +7,44 @@
 # Then on Mac:
 #   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-ca.crt
 
-{
-  auto_https off
-}
-
 # Vaultwarden — password & token vault
-:8444 {
+https://192.168.0.17:8444 {
   tls internal
   reverse_proxy vaultwarden:80
 }
 
 # Alf-E
-:8098 {
+https://192.168.0.17:8098 {
   tls internal
   reverse_proxy alf-e:8099
 }
 
 # Home Assistant
-:8124 {
+https://192.168.0.17:8124 {
   tls internal
   reverse_proxy homeassistant:8123
 }
 
 # Portainer
-:9002 {
+https://192.168.0.17:9002 {
   tls internal
   reverse_proxy portainer:9000
 }
 
 # Node-RED
-:1881 {
+https://192.168.0.17:1881 {
   tls internal
   reverse_proxy node-red:1880
 }
 
 # ESPHome
-:6053 {
+https://192.168.0.17:6053 {
   tls internal
   reverse_proxy esphome:6052
 }
 
 # Uptime Kuma
-:3002 {
+https://192.168.0.17:3002 {
   tls internal
   reverse_proxy uptime-kuma:3001
 }
