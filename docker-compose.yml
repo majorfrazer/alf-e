@@ -220,7 +220,6 @@ services:
       - WATCHTOWER_SCHEDULE=0 0 3 * * *
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_INCLUDE_STOPPED=false
-      - WATCHTOWER_NOTIFICATIONS=shoutrrr
       - WATCHTOWER_IGNORE_IMAGES=alf-e
     networks:
       - alfe_net
