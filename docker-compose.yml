@@ -6,6 +6,10 @@
 #   homeassistant — HA Core on port 8123
 #   ollama        — Local LLM inference on port 11434
 #   tailscale     — Mesh VPN + Funnel for family access without VPN app
+#   portainer     — Docker management UI on port 9000
+#   dozzle        — Live container log viewer on port 8888
+#   uptime-kuma   — Service health monitoring on port 3001
+#   watchtower    — Automatic container image updates (nightly)
 #
 # First-time setup:
 #   1. cp .env.example .env   ← fill in your API keys
@@ -27,6 +31,8 @@ volumes:
   ollama_models:
   tailscale_state:
   filebrowser_db:
+  portainer_data:
+  uptime_kuma_data:
 
 services:
 
@@ -119,6 +125,66 @@ services:
     volumes:
       - ha_config:/srv                      # HA config folder exposed as root
       - filebrowser_db:/database            # persists settings + users
+    networks:
+      - alfe_net
+
+  # ── Portainer (Docker management UI) ─────────────────────────────────────
+  # Access at http://192.168.0.17:9000
+  # First run: create admin user within 5 min or restart container
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - alfe_net
+
+  # ── Dozzle (live container log viewer) ────────────────────────────────────
+  # Access at http://192.168.0.17:8888
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - alfe_net
+
+  # ── Uptime Kuma (service health monitoring) ───────────────────────────────
+  # Access at http://192.168.0.17:3001
+  # Add monitors for: Alf-E, HA local, HA Nabu Casa, Ollama, FileBrowser
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+    networks:
+      - alfe_net
+
+  # ── Watchtower (automatic image updates) ──────────────────────────────────
+  # Checks for new images nightly at 3am; updates non-critical containers
+  # alf-e is excluded — updates should be intentional git pull + rebuild
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_SCHEDULE=0 0 3 * * *
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_IGNORE_IMAGES=alf-e
     networks:
       - alfe_net
 
