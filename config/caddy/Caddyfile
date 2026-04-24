@@ -1,0 +1,54 @@
+# Alf-E reverse proxy — internal TLS for LAN HTTPS
+# Caddy generates its own CA. Import caddy-ca.crt into your OS keychain once
+# and all services below get valid HTTPS with no browser warnings.
+#
+# After first run, get the CA cert:
+#   docker cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-ca.crt
+# Then on Mac:
+#   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-ca.crt
+
+{
+  auto_https off
+}
+
+# Vaultwarden — password & token vault
+:8444 {
+  tls internal
+  reverse_proxy vaultwarden:80
+}
+
+# Alf-E
+:8098 {
+  tls internal
+  reverse_proxy alf-e:8099
+}
+
+# Home Assistant
+:8124 {
+  tls internal
+  reverse_proxy homeassistant:8123
+}
+
+# Portainer
+:9001 {
+  tls internal
+  reverse_proxy portainer:9000
+}
+
+# Node-RED
+:1881 {
+  tls internal
+  reverse_proxy node-red:1880
+}
+
+# ESPHome
+:6053 {
+  tls internal
+  reverse_proxy esphome:6052
+}
+
+# Uptime Kuma
+:3002 {
+  tls internal
+  reverse_proxy uptime-kuma:3001
+}
