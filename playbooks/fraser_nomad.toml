@@ -138,25 +138,32 @@ token_env = "HA_API_TOKEN"
 
 [[ha_sites]]
 name = "home"
-owner = "Fraser (this N95)"
+owner = "Fraser (N95 — local)"
 url = "http://homeassistant:8123"
 token_env = "HA_API_TOKEN"
-notes = "The N95's own HA — default site loaded on boot."
+notes = "N95 local HA — default site, fastest when on home network."
 
 [[ha_sites]]
-name = "cole_sandbox"
-owner = "Cole household (Ormeau)"
+name = "home_remote"
+owner = "Fraser (N95 — Nabu Casa)"
 url = "https://xscydqtpjre3sxxwnt6irbmy6tnmnjeo.ui.nabu.casa"
-token_env = "HA_TOKEN_COLE"
-notes = "Fraser's home base — solar, Tesla, Shelly EMs."
+token_env = "HA_API_TOKEN"
+notes = "Same N95 HA via Nabu Casa cloud — use when away from home."
 
 # Placeholder slots — fill in as clients are commissioned.
 # [[ha_sites]]
-# name = "brotherhood"
+# name = "harley_matt"
 # owner = "Harley & Matt (Scholz)"
 # url = "https://<their>.ui.nabu.casa"
 # token_env = "HA_TOKEN_BROTHERHOOD"
-# notes = "First gift install — mac mini + N95 combo."
+# notes = "Brotherhood install."
+
+# [[ha_sites]]
+# name = "cole_sandbox"
+# owner = "Cole household (Ormeau)"
+# url = "https://<cole>.ui.nabu.casa"
+# token_env = "HA_TOKEN_COLE"
+# notes = "Cole's HA — solar, Tesla, Shelly EMs."
 
 # ── Sensors (Fraser's iPhone — Apple Blossom) ────────────────────────────
 
