@@ -205,6 +205,26 @@ class Memory:
         conn.commit()
         conn.close()
 
+    def get_audit_log(self, limit: int = 100, user_id: str = None) -> list[dict]:
+        """Return recent audit entries, most recent first."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        if user_id:
+            rows = conn.execute(
+                """SELECT timestamp, user_id, action, target, result, details
+                   FROM audit_log WHERE user_id = ?
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT timestamp, user_id, action, target, result, details
+                   FROM audit_log ORDER BY timestamp DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
     # ── Memory Export (for Claude Code bridge) ───────────────────────────
 
     def export_for_claude_code(self) -> dict:

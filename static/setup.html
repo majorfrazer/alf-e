@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Alf-E — First-run Setup</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;
+         background:#0f0f0f; color:#fff; min-height:100vh; }
+  .wrap { max-width:560px; margin:0 auto; padding:40px 24px; }
+  h1 { font-size:28px; margin:0 0 8px; }
+  .sub { color:#888; margin-bottom:32px; font-size:14px; }
+  .card { background:#1a1a1a; border:1px solid #333; border-radius:12px; padding:28px; }
+  label { display:block; margin:16px 0 6px; font-size:13px; color:#ccc; font-weight:500; }
+  .hint { display:block; font-size:11px; color:#888; margin-top:4px; font-weight:400; }
+  input, select { width:100%; padding:10px 12px; background:#111; border:1px solid #444;
+                  border-radius:8px; color:#fff; font-size:14px; }
+  input:focus, select:focus { outline:none; border-color:#7c3aed; }
+  .row { display:flex; gap:12px; align-items:center; margin-top:14px; }
+  .row input[type=checkbox] { width:auto; }
+  .row label { margin:0; cursor:pointer; }
+  button { margin-top:28px; width:100%; padding:12px; background:#7c3aed; color:#fff;
+           border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; }
+  button:hover { background:#6d28d9; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  .section { border-top:1px solid #2a2a2a; padding-top:20px; margin-top:24px; }
+  .section-title { font-size:12px; color:#888; text-transform:uppercase;
+                   letter-spacing:0.08em; margin-bottom:12px; }
+  #msg { margin-top:16px; padding:12px; border-radius:8px; display:none; font-size:13px; }
+  #msg.ok  { background:#064e3b; color:#a7f3d0; display:block; }
+  #msg.err { background:#7f1d1d; color:#fecaca; display:block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚡ Welcome to Alf-E</h1>
+  <div class="sub">A few quick questions and your installer will finish the rest.</div>
+
+  <div class="card">
+    <div class="section-title">API token</div>
+    <label>API token
+      <span class="hint">From the <code>.env</code> file — ALFE_API_TOKEN. You only need this once.</span>
+      <input id="token" type="password" autocomplete="off" />
+    </label>
+
+    <div class="section">
+      <div class="section-title">About your household</div>
+      <label>Household name
+        <input id="household_name" placeholder="The Smith Residence" required />
+      </label>
+      <label>Your name (owner)
+        <input id="owner_name" placeholder="Alex Smith" required />
+      </label>
+      <label>Timezone
+        <select id="timezone">
+          <option>Australia/Brisbane</option>
+          <option>Australia/Sydney</option>
+          <option>Australia/Melbourne</option>
+          <option>Australia/Adelaide</option>
+          <option>Australia/Perth</option>
+          <option>Australia/Darwin</option>
+          <option>Australia/Hobart</option>
+          <option>Pacific/Auckland</option>
+          <option>UTC</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Home Assistant</div>
+      <label>HA URL
+        <span class="hint">Usually the default works when HA runs on the same machine.</span>
+        <input id="ha_url" value="http://host.docker.internal:8123" />
+      </label>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Optional connectors</div>
+      <div class="row">
+        <input type="checkbox" id="enable_bom" checked />
+        <label for="enable_bom">Australian BOM weather</label>
+      </div>
+      <label>City (for BOM weather)
+        <select id="bom_city">
+          <option>Brisbane</option><option>Sydney</option><option>Melbourne</option>
+          <option>Perth</option><option>Adelaide</option><option>Hobart</option>
+          <option>Darwin</option><option>Canberra</option>
+          <option>Gold Coast</option><option>Cairns</option>
+        </select>
+      </label>
+
+      <div class="row">
+        <input type="checkbox" id="enable_gmail" />
+        <label for="enable_gmail">Gmail (requires separate OAuth setup)</label>
+      </div>
+      <label>Gmail address
+        <input id="gmail_user" type="email" placeholder="you@gmail.com" />
+      </label>
+    </div>
+
+    <button id="submit">Build my playbook</button>
+    <div id="msg"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// Pre-fill token from localStorage if already logged in
+const existing = localStorage.getItem('alfe_token');
+if (existing) $('token').value = existing;
+
+$('submit').addEventListener('click', async () => {
+    const token = $('token').value.trim();
+    if (!token) { showMsg('err', 'API token is required.'); return; }
+
+    const payload = {
+        household_name: $('household_name').value.trim(),
+        owner_name:     $('owner_name').value.trim(),
+        timezone:       $('timezone').value,
+        ha_url:         $('ha_url').value.trim(),
+        enable_bom:     $('enable_bom').checked,
+        bom_city:       $('bom_city').value,
+        enable_gmail:   $('enable_gmail').checked,
+        gmail_user:     $('gmail_user').value.trim(),
+    };
+
+    if (!payload.household_name || !payload.owner_name) {
+        showMsg('err', 'Household name and your name are required.');
+        return;
+    }
+
+    $('submit').disabled = true;
+    $('submit').textContent = 'Writing playbook…';
+
+    try {
+        const res = await fetch('/api/setup', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body:    JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+            // Trigger hot reload so the new playbook is live immediately
+            await fetch('/api/playbook/reload', {
+                method:  'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            localStorage.setItem('alfe_token', token);
+            showMsg('ok', '✓ Playbook written and loaded. Redirecting to Alf-E…');
+            setTimeout(() => { window.location.href = '/'; }, 1500);
+        } else {
+            showMsg('err', data.message || 'Setup failed.');
+            $('submit').disabled = false;
+            $('submit').textContent = 'Build my playbook';
+        }
+    } catch (e) {
+        showMsg('err', `Network error: ${e.message}`);
+        $('submit').disabled = false;
+        $('submit').textContent = 'Build my playbook';
+    }
+});
+
+function showMsg(kind, text) {
+    const m = $('msg');
+    m.className = kind;
+    m.textContent = text;
+}
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@ const state = {
     insightsVisible:    false,
     insights:           [],
     insightsSeenCount:  parseInt(localStorage.getItem('alfe_insights_seen') || '0'),
+    auditVisible:       false,
     sending:            false,
 };
 
@@ -707,6 +708,52 @@ function renderInsights() {
     }).join('');
 }
 
+// ── Audit Log ─────────────────────────────────────────────────────────────
+
+function toggleAuditDrawer() {
+    state.auditVisible = !state.auditVisible;
+    el('audit-drawer').classList.toggle('hidden', !state.auditVisible);
+    el('audit-btn').classList.toggle('active', state.auditVisible);
+}
+window.toggleAuditDrawer = toggleAuditDrawer;
+
+async function loadAudit() {
+    try {
+        const res  = await apiFetch('api/audit?limit=50');
+        if (!res.ok) return;
+        const data = await res.json();
+        const entries = data.entries || [];
+        const list = el('audit-list');
+        if (!list) return;
+
+        if (entries.length === 0) {
+            list.innerHTML = '<div class="insights-empty">No tool calls yet.</div>';
+            return;
+        }
+
+        list.innerHTML = entries.map(e => {
+            const action  = escHtml(e.action || '');
+            const result  = escHtml(e.result || '');
+            const details = escHtml((e.details || '').slice(0, 200));
+            const target  = escHtml((e.target || '').slice(0, 80));
+            const ts      = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '';
+            const badgeClass = result === 'ok' ? 'low' : (result === 'error' ? 'high' : 'medium');
+            return `
+                <div class="insight-card">
+                    <div class="insight-meta">
+                        <span class="insight-priority ${badgeClass}">${result}</span>
+                        <span class="insight-title">${action}</span>
+                        <span class="insight-time">${ts}</span>
+                    </div>
+                    ${target ? `<div class="insight-detail" style="font-family:monospace;font-size:11px;opacity:0.7">${target}</div>` : ''}
+                    ${details ? `<div class="insight-detail">${details}</div>` : ''}
+                </div>`;
+        }).join('');
+    } catch (e) {
+        // fail quietly
+    }
+}
+
 async function loadInsights() {
     try {
         const res  = await apiFetch('api/insights?limit=20');
@@ -776,6 +823,10 @@ function init() {
         toggleInsightsDrawer();
         if (state.insightsVisible) renderInsights();
     });
+    el('audit-btn').addEventListener('click', () => {
+        toggleAuditDrawer();
+        if (state.auditVisible) loadAudit();
+    });
 
     // Status + sensor + insights polling
     loadStatus();
@@ -783,6 +834,7 @@ function init() {
     setInterval(() => {
         loadStatus();
         if (state.sensorBarVisible) loadSensors();
+        if (state.auditVisible)     loadAudit();
     }, 10_000);
     // Check for new insights every 3 minutes (engine runs every 15)
     setInterval(loadInsights, 3 * 60 * 1000);

@@ -488,6 +488,8 @@ OPERATING RULES:
         # Role enforcement
         perm_error = self._check_user_permission(name, user_id)
         if perm_error:
+            if self.memory:
+                self.memory.log_action(user_id, name, target="", result="denied", details=perm_error[:500])
             return perm_error
 
         # Connector Registry — handles HA, Gmail, and all connector-provided tools
@@ -495,7 +497,17 @@ OPERATING RULES:
             result = self.registry.execute(name, inp, user_id)
             if result.requires_approval:
                 self.pending_approvals.append(result.approval_payload or {"tool": name, "inp": inp})
+                if self.memory:
+                    self.memory.log_action(user_id, name, target=str(inp)[:200], result="pending_approval")
                 return f"Queued for approval: {name}"
+            if self.memory:
+                import json as _json
+                self.memory.log_action(
+                    user_id, name,
+                    target=(_json.dumps(inp)[:500] if inp else ""),
+                    result=("ok" if result.success else "error"),
+                    details=(result.content or "")[:1000],
+                )
             return result.content
 
         # Self-building
