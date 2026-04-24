@@ -239,6 +239,12 @@ geohash = "r7hge7"
 location = "Brisbane"
 # Fallback to Brisbane if Apple Blossom's location can't resolve.
 
+[[connectors]]
+id = "memory"
+enabled = true
+# Semantic long-term memory via Qdrant. Auto-embeds every conversation exchange.
+# Tools: memory_search, memory_remember, memory_stats
+
 # ── Scheduled Ops ────────────────────────────────────────────────────────
 
 [[scheduled_ops]]

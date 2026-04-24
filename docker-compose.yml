@@ -40,6 +40,7 @@ volumes:
   node_red_data:
   caddy_data:
   caddy_config:
+  qdrant_data:
 
 services:
 
@@ -68,6 +69,7 @@ services:
       - ALFE_PLAYBOOK=${ALFE_PLAYBOOK:-playbooks/fraser_nomad.toml}
       - ALFE_DATA_DIR=/data
       - OLLAMA_HOST=http://ollama:11434
+      - QDRANT_URL=http://qdrant:6333
     depends_on:
       homeassistant:
         condition: service_started
@@ -132,6 +134,21 @@ services:
     volumes:
       - ha_config:/srv                      # HA config folder exposed as root
       - filebrowser_db:/database            # persists settings + users
+    networks:
+      - alfe_net
+
+  # ── Qdrant (vector database — Alf-E semantic memory) ─────────────────────
+  # REST API at http://192.168.0.17:6333  |  gRPC at 6334
+  # Dashboard at http://192.168.0.17:6333/dashboard
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
     networks:
       - alfe_net
 

@@ -637,6 +637,7 @@ OPERATING RULES:
                 last_user_msg = m["content"] if isinstance(m["content"], str) else ""
                 break
 
+        _embed_user_msg = last_user_msg
         config_name, config = self.router.route(last_user_msg)
         tier = config_name  # preserve for tier-aware fallback escalation
         self.last_model_used = config.model
@@ -683,6 +684,13 @@ OPERATING RULES:
                         tokens_output=final.usage.output_tokens,
                         cost_usd=cost,
                     )
+                # Auto-embed exchange into vector memory (fire-and-forget)
+                if _embed_user_msg and full_text:
+                    try:
+                        from engine.vector_memory import store_memory
+                        store_memory(_embed_user_msg, full_text, user_id=user_id)
+                    except Exception:
+                        pass
                 return
 
             if final.stop_reason == "tool_use":

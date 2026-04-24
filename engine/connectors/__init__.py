@@ -30,6 +30,7 @@ CONNECTOR_MODULES: dict[str, str] = {
     "bom":     "engine.connectors.bom",
     "tesla":   "engine.connectors.tesla",
     "eufy":    "engine.connectors.eufy",
+    "memory":  "engine.connectors.memory",
 }
 
 
