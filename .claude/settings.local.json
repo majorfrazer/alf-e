@@ -21,7 +21,18 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://192.168.0.17:8123/)",
       "Bash(curl -s -H \"Authorization: Bearer VcXNj1LQhzHdGDbBW1m5Ge6TNWjWLLiDwgWlAq8C\" http://192.168.0.17:8099/api/status)",
       "Bash(git rm *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(ssh alf-e@192.168.0.17 \"cd ~/alf-e && docker compose ps\")",
+      "Read(//Users/frasercole/.ssh/**)",
+      "Bash(ssh -i ~/.ssh/id_rsa alf-e@192.168.0.17 \"echo connected\")",
+      "Bash(ssh -i ~/.ssh/id_ed25519 alf-e@192.168.0.17 \"echo connected\")",
+      "Bash(ping -c 2 192.168.0.17)",
+      "Bash(ssh -v -i ~/.ssh/id_ed25519 alf-e@192.168.0.17 \"echo ok\")",
+      "Bash(docker -H ssh://alf-e@192.168.0.17 ps --format \"table {{.Names}}\\\\t{{.Status}}\")",
+      "Bash(chmod +x /Users/frasercole/Documents/Alf-E/alf-e-v2.0/gift/install-mac.command /Users/frasercole/Documents/Alf-E/alf-e-v2.0/gift/install-linux.sh /Users/frasercole/Documents/Alf-E/alf-e-v2.0/gift/make-zip.sh)",
+      "Bash(./make-zip.sh)",
+      "Bash(grep -iE \"\\\\.env$|token|credential|cert|key\\\\.pem|scholz|cole_sand|\\\\.pem$\")",
+      "Bash(gh run *)"
     ]
   }
 }

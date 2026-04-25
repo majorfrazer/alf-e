@@ -28,3 +28,7 @@ node_modules/
 # Build artifacts
 alfe_code.zip
 *.zip
+
+# Testing and AI
+.claude/
+.pytest_cache/
