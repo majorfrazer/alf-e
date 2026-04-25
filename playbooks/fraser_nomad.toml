@@ -144,6 +144,13 @@ token_env = "HA_API_TOKEN"
 notes = "N95 local HA — default site, fastest when on home network."
 
 [[ha_sites]]
+name = "Church"
+owner = "John"
+url = "https://xjgxwcdoec1hvlwxqmtwwm8cqxkkrv2v.ui.nabu.casa"
+token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyNWRmYjEzNTdhYjY0MjkyOGUwYWQzNTg3ODI5NTU4NSIsImlhdCI6MTc3NzEyNjQwNCwiZXhwIjoyMDkyNDg2NDA0fQ.It06vdWX-r18IcPtjjkoGwdajAPqqGwPmoGR-ZlcnRo"
+notes = "First install — building from scratch"
+
+[[ha_sites]]
 name = "home_remote"
 owner = "Fraser (N95 — Nabu Casa)"
 url = "https://xscydqtpjre3sxxwnt6irbmy6tnmnjeo.ui.nabu.casa"
