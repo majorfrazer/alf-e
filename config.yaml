@@ -1,7 +1,7 @@
 name: "Alf-E"
-version: "2.4.4"
+version: "2.5.0"
 slug: "alfe"
-description: "Your personal AI agent — home automation, energy, Tesla, and more."
+description: "Your personal AI agent — home automation, energy, and more."
 url: "https://github.com/majorfrazer/alf-e"
 arch:
   - aarch64
@@ -26,9 +26,15 @@ map:
 options:
   anthropic_api_key: ""
   google_api_key: ""
-  playbook: "example_household"
+  owner_name: "Household Owner"
+  household_name: "My Home"
+  timezone: "Australia/Brisbane"
+  playbook: ""
 
 schema:
   anthropic_api_key: str
   google_api_key: str?
-  playbook: str
+  owner_name: str
+  household_name: str
+  timezone: str
+  playbook: str?

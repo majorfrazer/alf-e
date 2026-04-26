@@ -16,6 +16,9 @@ const state = {
     sending:            false,
     ttsEnabled:         localStorage.getItem('alfe_tts') === 'true',
     micListening:       false,
+    haSites:            [],
+    haActiveSite:       'default',
+    activeModel:        '',
 };
 
 // ── Voice — Speech Recognition (STT) ─────────────────────────────────────────
@@ -408,11 +411,31 @@ function renderConversationList() {
     }
     list.innerHTML = state.conversations.map(c => `
         <div class="conv-item ${c.id === state.conversationId ? 'active' : ''}"
-             onclick="loadConversation('${escHtml(c.id)}')"
              title="${escHtml(c.preview || c.title || c.id)}">
-            ${escHtml(c.title || c.preview || c.id)}
+            <span class="conv-title" onclick="loadConversation('${escHtml(c.id)}')">${escHtml(c.title || c.preview || c.id)}</span>
+            <button class="conv-delete-btn" onclick="deleteConversation('${escHtml(c.id)}')" title="Delete">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
         </div>`).join('');
 }
+
+function deleteConversation(id) {
+    state.conversations = state.conversations.filter(c => c.id !== id);
+    try {
+        localStorage.setItem('alfe_conversations', JSON.stringify(state.conversations));
+        localStorage.removeItem(`alfe_msgs_${id}`);
+    } catch {}
+    if (state.conversationId === id) {
+        state.conversationId   = null;
+        state.messages         = [];
+        state.pendingApprovals = [];
+        renderMessages();
+    }
+    renderConversationList();
+}
+window.deleteConversation = deleteConversation;
 
 function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -490,6 +513,7 @@ async function sendMessage(text) {
                     saveMessages(state.conversationId);
                     renderMessages();
                     speakText(assistantMsg.content);
+                    if (data.model_used) updateModelBadge(data.model_used);
 
                 } else if (data.type === 'error') {
                     assistantMsg.content  = `Error: ${escHtml(data.content)}`;
@@ -619,10 +643,144 @@ async function loadStatus() {
 
         // Store connector list for later use (e.g. status panel)
         state.connectors = connectors;
+
+        // Update model badge if we have a model from status
+        if (data.active_model) updateModelBadge(data.active_model);
     } catch {
         el('status-dot').className = 'status-dot disconnected';
     }
 }
+
+// ── HA Sites ──────────────────────────────────────────────────────────────────
+
+function abbrevModel(model) {
+    if (!model) return '';
+    if (model.includes('opus'))   return 'Opus';
+    if (model.includes('sonnet')) return 'Sonnet';
+    if (model.includes('haiku'))  return 'Haiku';
+    if (model.includes('gemini-2.0-flash')) return 'Gemini Flash';
+    if (model.includes('gemini')) return 'Gemini';
+    if (model.includes('llama'))  return 'Llama';
+    return model.split('/').pop().split('-').slice(0,2).join('-');
+}
+
+function updateModelBadge(model) {
+    state.activeModel = model;
+    const badge = el('model-badge');
+    if (!badge) return;
+    const label = abbrevModel(model);
+    badge.textContent = label;
+    badge.title = model;
+    badge.classList.toggle('hidden', !label);
+}
+
+async function loadHaSites() {
+    try {
+        const res  = await apiFetch('api/ha/sites');
+        if (!res.ok) return;
+        const data = await res.json();
+        state.haSites      = data.sites || [];
+        state.haActiveSite = data.active || 'default';
+        renderHaSiteSelector();
+    } catch { /* server may not have the endpoint yet */ }
+}
+
+function renderHaSiteSelector() {
+    const sel = el('ha-site-select');
+    if (!sel) return;
+    sel.innerHTML = state.haSites.map(s => {
+        const label = s.owner ? `${s.name} (${s.owner})` : s.name;
+        return `<option value="${escHtml(s.name)}" ${s.name === state.haActiveSite ? 'selected' : ''}>${escHtml(label)}</option>`;
+    }).join('');
+    if (state.haSites.length === 0) {
+        sel.innerHTML = '<option value="">No sites</option>';
+    }
+}
+
+async function onHaSiteChange(name) {
+    if (!name || name === state.haActiveSite) return;
+    try {
+        const res = await apiFetch('api/ha/sites/switch', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ name }),
+        });
+        if (res.ok) {
+            state.haActiveSite = name;
+        } else {
+            const err = await res.json().catch(() => ({ detail: 'Switch failed' }));
+            alert(`Could not switch to ${name}: ${err.detail || 'Unknown error'}`);
+            renderHaSiteSelector(); // revert selector
+        }
+    } catch (e) {
+        console.error('[Alf-E] ha site switch error:', e);
+    }
+}
+
+function openAddSiteModal() {
+    ['site-name','site-owner','site-url','site-token','site-notes'].forEach(id => {
+        const inp = el(id);
+        if (inp) inp.value = '';
+    });
+    const errEl = el('add-site-error');
+    if (errEl) errEl.classList.add('hidden');
+    el('add-site-modal').classList.remove('hidden');
+    const first = el('site-name');
+    if (first) setTimeout(() => first.focus(), 50);
+}
+window.openAddSiteModal = openAddSiteModal;
+
+function closeAddSiteModal() {
+    el('add-site-modal').classList.add('hidden');
+}
+window.closeAddSiteModal = closeAddSiteModal;
+
+function handleModalOverlayClick(e) {
+    if (e.target === e.currentTarget) closeAddSiteModal();
+}
+window.handleModalOverlayClick = handleModalOverlayClick;
+
+async function submitAddSite() {
+    const name   = (el('site-name')?.value  || '').trim();
+    const owner  = (el('site-owner')?.value || '').trim();
+    const url    = (el('site-url')?.value   || '').trim();
+    const token  = (el('site-token')?.value || '').trim();
+    const notes  = (el('site-notes')?.value || '').trim();
+
+    const errEl  = el('add-site-error');
+    const setErr = (msg) => {
+        if (errEl) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    };
+
+    if (!name || !url || !token) { setErr('Name, URL, and token are required.'); return; }
+    if (!url.startsWith('http')) { setErr('URL must start with http:// or https://'); return; }
+
+    const btn = el('add-site-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+
+    try {
+        const res = await apiFetch('api/ha/sites', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ name, owner, url, token, notes }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            setErr(data.detail || 'Failed to add site');
+            return;
+        }
+        closeAddSiteModal();
+        await loadHaSites();
+        // Auto-switch to the new site
+        await onHaSiteChange(data.name);
+        renderHaSiteSelector();
+    } catch (e) {
+        setErr('Network error — is Alf-E running?');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Add Site'; }
+    }
+}
+window.submitAddSite = submitAddSite;
 
 // ── Conversations ─────────────────────────────────────────────────────────────
 
@@ -921,6 +1079,8 @@ function init() {
     });
     el('mic-btn').addEventListener('click', toggleMic);
     el('tts-btn').addEventListener('click', toggleTTS);
+    el('add-site-btn').addEventListener('click', openAddSiteModal);
+    el('ha-site-select').addEventListener('change', e => onHaSiteChange(e.target.value));
 
     // Voice setup
     initVoice();
@@ -929,6 +1089,7 @@ function init() {
     // Status + sensor + insights polling
     loadStatus();
     loadInsights();
+    loadHaSites();
     setInterval(() => {
         loadStatus();
         if (state.sensorBarVisible) loadSensors();

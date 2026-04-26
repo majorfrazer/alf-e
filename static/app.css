@@ -93,14 +93,13 @@ html, body {
 .conv-item {
     padding: 9px 12px;
     border-radius: var(--radius-sm);
-    cursor: pointer;
     font-size: 13px;
     color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     margin-bottom: 1px;
     transition: background 0.1s, color 0.1s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 .conv-item:hover  { background: var(--surface2); color: var(--text); }
 .conv-item.active { background: var(--surface3); color: var(--text); }
@@ -622,6 +621,10 @@ html, body {
     .sidebar.open { transform: translateX(0); }
 
     .message { max-width: 92%; }
+
+    /* Compact site selector on small screens */
+    .ha-site-select { max-width: 90px; font-size: 11px; }
+    .model-badge    { display: none; }
 }
 
 @media (min-width: 769px) {
@@ -730,3 +733,181 @@ html, body {
     color: var(--text-dim);
     margin-left: auto;
 }
+
+/* ── Model Badge ──────────────────────────────────────────────────────────── */
+.model-badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 4px;
+    transition: color 0.3s;
+}
+
+/* ── HA Site Selector ─────────────────────────────────────────────────────── */
+.ha-site-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-right: 2px;
+}
+.ha-site-select {
+    font-size: 12px;
+    font-family: var(--font);
+    color: var(--text-muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 3px 6px;
+    cursor: pointer;
+    max-width: 140px;
+    outline: none;
+    transition: border-color 0.15s, color 0.15s;
+}
+.ha-site-select:hover,
+.ha-site-select:focus {
+    border-color: var(--accent);
+    color: var(--text);
+}
+.add-site-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+}
+.add-site-btn:hover { color: var(--accent); }
+
+/* ── Conversation Delete Button ───────────────────────────────────────────── */
+.conv-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.conv-delete-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 3px;
+    transition: color 0.15s, background 0.15s;
+}
+.conv-item:hover .conv-delete-btn { display: flex; }
+.conv-delete-btn:hover {
+    color: var(--error);
+    background: rgba(239,68,68,0.1);
+}
+
+/* ── Add Site Modal ───────────────────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.modal-overlay.hidden { display: none; }
+.modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+    overflow: hidden;
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+    font-weight: 600;
+}
+.modal-body {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.modal-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-top: 4px;
+}
+.modal-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+}
+.modal-input:focus { border-color: var(--accent); }
+.modal-error {
+    margin: 0 20px;
+    padding: 8px 12px;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: var(--radius-sm);
+    color: var(--error);
+    font-size: 12px;
+}
+.modal-error.hidden { display: none; }
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+}
+.modal-btn-cancel {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+.modal-btn-cancel:hover { border-color: var(--text-muted); color: var(--text); }
+.modal-btn-primary {
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.modal-btn-primary:hover   { background: var(--accent-hover); }
+.modal-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }

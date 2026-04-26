@@ -533,6 +533,115 @@ async def reload_playbook():
     }
 
 
+# ── HA Sites API ──────────────────────────────────────────────────────────────
+
+class SwitchSitePayload(BaseModel):
+    name: str
+
+
+class AddSitePayload(BaseModel):
+    name: str
+    owner: str
+    url: str
+    token: str
+    notes: str = ""
+
+
+def _get_ha_connector():
+    """Return the live HA connector from the registry, or None."""
+    if registry and hasattr(registry, "_connectors"):
+        return registry._connectors.get("ha")
+    return None
+
+
+@app.get("/api/ha/sites")
+async def get_ha_sites():
+    """List all configured HA sites and which is currently active."""
+    if not playbook:
+        return {"sites": [], "active": "default"}
+    sites = [s.model_dump() for s in playbook.ha_sites]
+    ha_conn = _get_ha_connector()
+    active = ha_conn._active_site if ha_conn else "default"
+    return {"sites": sites, "active": active}
+
+
+@app.post("/api/ha/sites/switch")
+async def switch_ha_site(payload: SwitchSitePayload):
+    """Switch the active HA site without restarting."""
+    ha_conn = _get_ha_connector()
+    if not ha_conn:
+        raise HTTPException(status_code=503, detail="HA connector not loaded")
+    result = ha_conn._switch_site(payload.name)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.content)
+    return {"status": "ok", "active": payload.name, "message": result.content}
+
+
+@app.post("/api/ha/sites")
+async def add_ha_site(payload: AddSitePayload):
+    """Add a new HA site: writes to playbook TOML + .env, then hot-reloads."""
+    name = payload.name.lower().replace(" ", "_")
+    env_var = f"HA_TOKEN_{name.upper()}"
+
+    if not name or not payload.url or not payload.token:
+        raise HTTPException(status_code=400, detail="name, url, and token are required")
+    if not payload.url.startswith("http"):
+        raise HTTPException(status_code=400, detail="url must start with http:// or https://")
+    if playbook and any(s.name.lower() == name for s in playbook.ha_sites):
+        raise HTTPException(status_code=409, detail=f"Site '{name}' already exists")
+
+    # Write token to .env
+    env_path = PLAYBOOK_PATH.parent.parent / ".env"
+    if not env_path.exists():
+        env_path = Path(".env")
+    try:
+        existing_env = env_path.read_text() if env_path.exists() else ""
+        if f"{env_var}=" not in existing_env:
+            with env_path.open("a") as f:
+                f.write(f"\n# {payload.owner}\n{env_var}={payload.token}\n")
+    except Exception as e:
+        logger.warning(f"Could not write to .env: {e}")
+
+    # Make token immediately available in this process
+    os.environ[env_var] = payload.token
+
+    # Append [[ha_sites]] block to playbook TOML
+    notes = payload.notes or f"Added {__import__('datetime').date.today()}"
+    toml_block = (
+        f'\n[[ha_sites]]\n'
+        f'name = "{name}"\n'
+        f'owner = "{payload.owner}"\n'
+        f'url = "{payload.url}"\n'
+        f'token_env = "{env_var}"\n'
+        f'notes = "{notes}"\n'
+    )
+    try:
+        with PLAYBOOK_PATH.open("a") as f:
+            f.write(toml_block)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not write playbook: {e}")
+
+    # Hot-reload
+    try:
+        new_pb = load_playbook(PLAYBOOK_PATH)
+        global playbook
+        playbook = new_pb
+        if agent:
+            agent.playbook = new_pb
+        if registry:
+            registry.playbook = new_pb
+            ha_conn = _get_ha_connector()
+            if ha_conn:
+                ha_conn._sites = [s.model_dump() for s in new_pb.ha_sites]
+        if scheduler:
+            scheduler.set_ops(new_pb.scheduled_ops)
+        logger.info(f"Added HA site '{name}' and reloaded playbook")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Site written but playbook reload failed: {e}")
+
+    return {"status": "ok", "name": name, "env_var": env_var}
+
+
 # ── Memory Export (Claude Code bridge) ───────────────────────────────────────
 
 @app.get("/api/memory/export")
@@ -609,6 +718,7 @@ async def get_status():
         "message_count": memory.get_message_count() if memory else 0,
         "cost_30d":      cost,
         "providers":     list(playbook.llm.keys()) if playbook else [],
+        "active_model":  agent.last_model_used if agent and hasattr(agent, "last_model_used") else "",
     }
 
 

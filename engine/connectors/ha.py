@@ -843,7 +843,7 @@ class HAConnector(BaseConnector):
         return ConnectorResult(success=True, content="\n".join(lines))
 
     def _switch_site(self, name: str) -> ConnectorResult:
-        site = next((s for s in self._sites if s.get("name") == name), None)
+        site = next((s for s in self._sites if s.get("name", "").lower() == name.lower()), None)
         if not site:
             available = ", ".join(s.get("name", "?") for s in self._sites) or "(none)"
             return ConnectorResult(
