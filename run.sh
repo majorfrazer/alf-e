@@ -53,12 +53,12 @@ RESPONSE RULES:
 
 [llm.default]
 provider = "anthropic"
-model = "claude-haiku-4-5-20251001"
+model = "claude-sonnet-4-6"
 api_key_env = "ANTHROPIC_API_KEY"
 max_tokens = 4096
 temperature = 0.7
-cost_per_1k_input = 0.0008
-cost_per_1k_output = 0.004
+cost_per_1k_input = 0.003
+cost_per_1k_output = 0.015
 capabilities = ["general", "reasoning", "analysis"]
 
 [llm.fast]
@@ -174,9 +174,9 @@ while true; do
     uvicorn server:app --host 0.0.0.0 --port 8000 --no-access-log &
     UVICORN_PID=$!
 
-    # Poll every 2s for restart flag or process death
+    # Poll every 1s for restart flag or process death
     while kill -0 "$UVICORN_PID" 2>/dev/null; do
-        sleep 2
+        sleep 1
         if [ -f /app/.restart_requested ]; then
             bashio::log.info "Connector deployed — restarting server..."
             kill "$UVICORN_PID"

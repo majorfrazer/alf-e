@@ -209,11 +209,14 @@ async def auth_middleware(request: Request, call_next):
 # Uses the SecurityConfig values from the playbook.
 
 _rate_counts: dict[str, list[float]] = {}  # ip → list of timestamps
+_rate_last_prune: float = 0.0              # wall-clock time of last full dict prune
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     """Enforce max_actions_per_minute and max_actions_per_hour from SecurityConfig."""
+    global _rate_last_prune
+
     if not request.url.path.startswith("/api/"):
         return await call_next(request)
 
@@ -230,8 +233,15 @@ async def rate_limit_middleware(request: Request, call_next):
     if client_ip not in _rate_counts:
         _rate_counts[client_ip] = []
 
-    # Prune timestamps older than 1 hour
+    # Prune timestamps older than 1 hour for this IP
     _rate_counts[client_ip] = [t for t in _rate_counts[client_ip] if now - t < 3600]
+
+    # Hourly sweep: evict IPs with no recent activity so the dict doesn't grow unbounded
+    if now - _rate_last_prune > 3600:
+        stale = [ip for ip, ts in _rate_counts.items() if not ts]
+        for ip in stale:
+            del _rate_counts[ip]
+        _rate_last_prune = now
 
     timestamps = _rate_counts[client_ip]
     last_minute = sum(1 for t in timestamps if now - t < 60)
@@ -389,8 +399,28 @@ async def approve_action(req: ApprovalRequest):
     action = agent.pending_approvals[req.index]
 
     if req.approved:
-        # ── HA service call ───────────────────────────────────────────
-        if action["type"] == "ha_service_call" and ha:
+        # ── Code proposal (self-building connector) ───────────────────
+        if action.get("type") == "code_proposal":
+            result = await _deploy_connector(action, req.user_id)
+            agent.pending_approvals.pop(req.index)
+            return result
+
+        # ── Registry tool call (ha_turn_on, ha_call_service, etc.) ────
+        # All connector-queued approvals carry tool/inp — re-execute via registry.
+        tool_name = action.get("tool") or action.get("type")
+        inp       = action.get("inp") or action.get("data") or {}
+        if tool_name and registry and registry.has_tool(tool_name):
+            result = registry.execute(tool_name, inp, req.user_id)
+            memory.log_action(
+                req.user_id, tool_name,
+                target=str(inp)[:200],
+                result="success" if result.success else "failed",
+            )
+            agent.pending_approvals.pop(req.index)
+            return {"status": "executed", "success": result.success, "detail": result.content}
+
+        # ── Legacy: ha_service_call via old HAConnector ───────────────
+        if action.get("type") == "ha_service_call" and ha:
             success = ha.call_service(
                 action["domain"],
                 action["service"],
@@ -404,12 +434,6 @@ async def approve_action(req: ApprovalRequest):
             )
             agent.pending_approvals.pop(req.index)
             return {"status": "executed", "success": success}
-
-        # ── Code proposal (self-building connector) ───────────────────
-        if action["type"] == "code_proposal":
-            result = await _deploy_connector(action, req.user_id)
-            agent.pending_approvals.pop(req.index)
-            return result
 
     agent.pending_approvals.pop(req.index)
     return {"status": "rejected"}
@@ -1027,7 +1051,14 @@ async def validate_ha(payload: ValidateHaPayload):
 
 # ── Update Check ─────────────────────────────────────────────────────────────
 
-_ALFE_VERSION = "2.5.0"   # bumped each release
+def _read_version() -> str:
+    try:
+        vf = Path(__file__).parent / "version.json"
+        return json.loads(vf.read_text()).get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+_ALFE_VERSION = _read_version()
 
 
 @app.get("/api/update/check")

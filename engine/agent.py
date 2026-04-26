@@ -36,122 +36,10 @@ except ImportError:
 logger = logging.getLogger("alfe.agent")
 
 TOOLS = [
-    # ── Home Assistant: Read ───────────────────────────────────────────
-    {
-        "name": "get_sensor",
-        "description": (
-            "Get a live reading for a named sensor from the playbook config. "
-            "Use this for quick access to pre-configured sensors like solar_watts, house_watts, tesla_soc."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "sensor_name": {
-                    "type": "string",
-                    "description": "Sensor key from playbook (e.g. 'solar_watts', 'house_watts', 'tesla_soc', 'grid_watts')",
-                }
-            },
-            "required": ["sensor_name"],
-        },
-    },
-    {
-        "name": "get_all_sensors",
-        "description": "Get all pre-configured sensor readings at once. Best first call for home/energy status questions.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "get_ha_entity",
-        "description": (
-            "Get full state and attributes for ANY Home Assistant entity by its entity_id. "
-            "Use this when you need an entity not in the pre-configured sensors, or need full attributes. "
-            "Examples: lights, switches, climate, covers, automations, people, zones, cameras."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "entity_id": {
-                    "type": "string",
-                    "description": "Full HA entity ID (e.g. 'light.kitchen', 'climate.living_room', 'person.fraser')",
-                }
-            },
-            "required": ["entity_id"],
-        },
-    },
-    {
-        "name": "list_ha_entities",
-        "description": (
-            "List all Home Assistant entities, optionally filtered by domain. "
-            "Use this to discover what's available before querying a specific entity. "
-            "Returns entity_id, current state, and friendly name."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "domain": {
-                    "type": "string",
-                    "description": "Optional domain filter (e.g. 'light', 'switch', 'sensor', 'climate', 'cover', 'automation'). Omit for all entities.",
-                }
-            },
-        },
-    },
-    {
-        "name": "get_ha_history",
-        "description": (
-            "Get historical state data for a Home Assistant entity over the last N hours. "
-            "Returns min/max/average and sample count. "
-            "Use this for trend analysis, daily totals, energy summaries, anomaly detection."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "entity_id": {
-                    "type": "string",
-                    "description": "Full HA entity ID to query history for",
-                },
-                "hours": {
-                    "type": "integer",
-                    "description": "How many hours of history to retrieve (default 24, max 168 = 7 days)",
-                },
-            },
-            "required": ["entity_id"],
-        },
-    },
-    # ── Home Assistant: Write ──────────────────────────────────────────
-    {
-        "name": "ha_service_call",
-        "description": (
-            "Call a Home Assistant service to control a device. "
-            "Examples: turn on/off lights, switches, covers; set thermostat temperature; trigger automations. "
-            "Actions are subject to playbook approval tiers — some execute immediately, others require user confirmation."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "domain":    {"type": "string", "description": "HA domain (e.g. 'switch', 'light', 'climate', 'cover', 'automation')"},
-                "service":   {"type": "string", "description": "Service to call (e.g. 'turn_on', 'turn_off', 'toggle', 'set_temperature', 'trigger')"},
-                "entity_id": {"type": "string", "description": "Full HA entity ID"},
-                "data":      {"type": "object", "description": "Optional service data (e.g. {'temperature': 22, 'brightness': 200})"},
-            },
-            "required": ["domain", "service", "entity_id"],
-        },
-    },
-    {
-        "name": "send_notification",
-        "description": (
-            "Send a push notification to Fraser's phone (or other registered HA companion app devices). "
-            "Use for alerts, reminders, and proactive updates."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "message": {"type": "string", "description": "Notification body text"},
-                "title":   {"type": "string", "description": "Notification title (default: 'Alf-E')"},
-                "target":  {"type": "string", "description": "Optional specific notify service (e.g. 'notify.mobile_app_fraser_iphone'). Omit to notify all devices."},
-            },
-            "required": ["message"],
-        },
-    },
     # ── Memory & Context ───────────────────────────────────────────────
+    # NOTE: HA tools are provided by the ConnectorRegistry (engine/connectors/ha.py).
+    # Do NOT re-add legacy get_sensor / get_ha_entity / ha_service_call etc. here —
+    # doing so presents duplicate tools to Claude and bloats context.
     {
         "name": "search_memory",
         "description": (
@@ -451,9 +339,8 @@ OPERATING RULES:
     # ── Role Enforcement ───────────────────────────────────────────────
 
     _TOOL_DOMAINS: dict[str, str] = {
-        "get_sensor": "energy", "get_all_sensors": "energy", "get_ha_entity": "home",
-        "list_ha_entities": "home", "get_ha_history": "energy", "ha_service_call": "home",
-        "send_notification": "home", "search_memory": "memory", "remember": "memory",
+        # HA tools are ha_* prefix — mapped to "home" domain via connector_id fallback below
+        "search_memory": "memory", "remember": "memory",
         "recall": "memory", "get_cost_summary": "admin", "web_search": "web",
         "web_fetch": "web", "read_file": "files", "write_file": "files",
         "get_status": "admin", "get_playbook_info": "admin", "propose_connector": "admin",
