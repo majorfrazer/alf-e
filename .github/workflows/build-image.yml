@@ -1,52 +1,111 @@
-name: Build & Publish Alf-E Image
+name: Build & Publish Alf-E
 
+# Triggers: any push to main that touches real code
+# Manual trigger available via Actions → Run workflow
 on:
   push:
     branches: [main]
     paths-ignore:
       - '**.md'
-      - 'brotherhood/**'
       - 'playbooks/**'
+      - 'scripts/**'
+      - 'brotherhood/**'
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            build_from: ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.19
+
+          - arch: aarch64
+            platform: linux/arm64
+            build_from: ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.19
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+
+      # QEMU lets the amd64 runner cross-compile ARM images
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/alf-e
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=,format=short
-            type=ref,event=branch
+      # Extract version from config.yaml so image tags match the add-on version
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep '^version:' config.yaml | awk '{print $2}' | tr -d '"')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version $VERSION for ${{ matrix.arch }}"
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
+      # Build and push: one image per arch
+      # HA pulls ghcr.io/majorfrazer/alf-e/amd64:VERSION (or aarch64:VERSION)
+      - name: Build and push ${{ matrix.arch }}
+        uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.standalone
+          file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            BUILD_FROM=${{ matrix.build_from }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/alf-e/${{ matrix.arch }}:latest
+            ghcr.io/${{ github.repository_owner }}/alf-e/${{ matrix.arch }}:${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.title=Alf-E
+            org.opencontainers.image.description=Personal AI agent for Home Assistant
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.source=https://github.com/majorfrazer/alf-e
+
+  # After both arches build — update version.json so clients see the new version
+  release:
+    name: Mark release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep '^version:' config.yaml | awk '{print $2}' | tr -d '"')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version.json
+        run: |
+          echo "{\"version\": \"${{ steps.version.outputs.version }}\"}" > version.json
+
+      - name: Commit version.json if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git diff --staged --quiet || git commit -m "chore: bump version.json to ${{ steps.version.outputs.version }} [skip ci]"
+          git push

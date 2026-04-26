@@ -6,6 +6,11 @@ url: "https://github.com/majorfrazer/alf-e"
 arch:
   - aarch64
   - amd64
+
+# Pre-built image on GHCR — HA pulls this instead of building from source.
+# {arch} is substituted by the supervisor (amd64 or aarch64).
+image: "ghcr.io/majorfrazer/alf-e/{arch}"
+
 startup: application
 boot: auto
 init: false
