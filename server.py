@@ -172,7 +172,12 @@ if not _IS_HA_ADDON and not _API_TOKEN:
 
 # Paths that don't need auth (static files, health, docs, first-run setup page)
 # Note: /api/setup still requires token — the page is public, the write is not.
-_PUBLIC_PATHS = {"/", "/setup", "/sw.js", "/docs", "/openapi.json", "/redoc", "/api/health"}
+_PUBLIC_PATHS = {
+    "/", "/setup", "/sw.js", "/docs", "/openapi.json", "/redoc",
+    "/api/health", "/api/setup/status", "/api/setup/info",
+    "/api/setup", "/api/setup/validate-key", "/api/setup/validate-ha",
+    "/api/update/check",
+}
 
 
 @app.middleware("http")
@@ -772,14 +777,16 @@ from pydantic import BaseModel as _PBM
 
 
 class SetupPayload(_PBM):
-    household_name: str
-    owner_name: str
-    timezone: str = "Australia/Brisbane"
-    ha_url: str = "http://host.docker.internal:8123"
-    enable_gmail: bool = False
-    gmail_user: str = ""
-    enable_bom: bool = False
-    bom_city: str = "Brisbane"
+    household_name:    str
+    owner_name:        str
+    timezone:          str = "Australia/Brisbane"
+    ha_url:            str = "http://homeassistant:8123"
+    ha_token:          str = ""
+    anthropic_api_key: str = ""
+    enable_gmail:      bool = False
+    gmail_user:        str = ""
+    enable_bom:        bool = False
+    bom_city:          str = "Brisbane"
 
 
 @app.post("/api/setup")
@@ -900,6 +907,26 @@ enabled = true
 {gmail_block}{bom_block}
 '''
 
+    # Persist API key and HA token to .env and live environment
+    env_path = PLAYBOOK_PATH.parent.parent / ".env"
+    if not env_path.exists():
+        env_path = Path(".env")
+
+    def _write_env_var(path: Path, key: str, value: str):
+        try:
+            existing = path.read_text() if path.exists() else ""
+            if f"{key}=" not in existing:
+                with path.open("a") as f:
+                    f.write(f"\n{key}={value}\n")
+        except Exception:
+            pass
+        os.environ[key] = value
+
+    if payload.anthropic_api_key:
+        _write_env_var(env_path, "ANTHROPIC_API_KEY", payload.anthropic_api_key)
+    if payload.ha_token:
+        _write_env_var(env_path, "HA_API_TOKEN", payload.ha_token)
+
     # Write to the active playbook path
     try:
         PLAYBOOK_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -928,6 +955,102 @@ async def setup_status():
         return {"setup_complete": False}
     flag = Path(memory.db_path).parent / ".setup_complete"
     return {"setup_complete": flag.exists(), "current_playbook": playbook.name if playbook else None}
+
+
+@app.get("/api/setup/info")
+async def setup_info():
+    """Return environment info the wizard needs before submitting."""
+    return {
+        "is_addon":          _IS_HA_ADDON,
+        "anthropic_key_set": bool(os.getenv("ANTHROPIC_API_KEY")),
+        "ha_key_set":        bool(os.getenv("HA_API_TOKEN") or os.getenv("SUPERVISOR_TOKEN")),
+    }
+
+
+class ValidateKeyPayload(_PBM):
+    anthropic_api_key: str
+
+
+@app.post("/api/setup/validate-key")
+async def validate_api_key(payload: ValidateKeyPayload):
+    """Quick smoke-test of an Anthropic API key."""
+    import httpx as _httpx
+    try:
+        r = _httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": payload.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 10,
+                "messages": [{"role": "user", "content": "Hi"}],
+            },
+            timeout=10,
+        )
+        if r.status_code in (200, 400):   # 400 can mean bad request but key is valid
+            return {"valid": True}
+        if r.status_code == 401:
+            return {"valid": False, "error": "Invalid API key — check and try again."}
+        return {"valid": False, "error": f"Anthropic returned {r.status_code}"}
+    except Exception as e:
+        return {"valid": False, "error": f"Could not reach Anthropic: {e}"}
+
+
+class ValidateHaPayload(_PBM):
+    ha_url:   str
+    ha_token: str
+
+
+@app.post("/api/setup/validate-ha")
+async def validate_ha(payload: ValidateHaPayload):
+    """Test a HA URL + token pair."""
+    import httpx as _httpx
+    url = payload.ha_url.rstrip("/")
+    try:
+        r = _httpx.get(
+            f"{url}/api/",
+            headers={"Authorization": f"Bearer {payload.ha_token}"},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            return {"valid": True, "ha_name": data.get("location_name", "Home Assistant")}
+        if r.status_code in (401, 403):
+            return {"valid": False, "error": "Token rejected — create a new long-lived token in HA Profile → Security."}
+        return {"valid": False, "error": f"HA returned {r.status_code}"}
+    except Exception as e:
+        return {"valid": False, "error": f"Could not reach {url} — check the URL."}
+
+
+# ── Update Check ─────────────────────────────────────────────────────────────
+
+_ALFE_VERSION = "2.5.0"   # bumped each release
+
+
+@app.get("/api/update/check")
+async def check_for_update():
+    """Compare running version against latest published version.json on GitHub."""
+    import httpx as _httpx
+    try:
+        r = _httpx.get(
+            "https://raw.githubusercontent.com/majorfrazer/alf-e/main/version.json",
+            timeout=6,
+        )
+        if r.status_code == 200:
+            latest = r.json().get("version", _ALFE_VERSION)
+            update_available = latest != _ALFE_VERSION
+            return {
+                "current":          _ALFE_VERSION,
+                "latest":           latest,
+                "update_available": update_available,
+                "is_addon":         _IS_HA_ADDON,
+            }
+    except Exception:
+        pass
+    return {"current": _ALFE_VERSION, "latest": _ALFE_VERSION, "update_available": False}
 
 
 # ── Audit Log Endpoint ──────────────────────────────────────────────────────

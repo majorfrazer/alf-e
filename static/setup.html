@@ -1,172 +1,676 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Alf-E — First-run Setup</title>
-<style>
-  * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;
-         background:#0f0f0f; color:#fff; min-height:100vh; }
-  .wrap { max-width:560px; margin:0 auto; padding:40px 24px; }
-  h1 { font-size:28px; margin:0 0 8px; }
-  .sub { color:#888; margin-bottom:32px; font-size:14px; }
-  .card { background:#1a1a1a; border:1px solid #333; border-radius:12px; padding:28px; }
-  label { display:block; margin:16px 0 6px; font-size:13px; color:#ccc; font-weight:500; }
-  .hint { display:block; font-size:11px; color:#888; margin-top:4px; font-weight:400; }
-  input, select { width:100%; padding:10px 12px; background:#111; border:1px solid #444;
-                  border-radius:8px; color:#fff; font-size:14px; }
-  input:focus, select:focus { outline:none; border-color:#7c3aed; }
-  .row { display:flex; gap:12px; align-items:center; margin-top:14px; }
-  .row input[type=checkbox] { width:auto; }
-  .row label { margin:0; cursor:pointer; }
-  button { margin-top:28px; width:100%; padding:12px; background:#7c3aed; color:#fff;
-           border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; }
-  button:hover { background:#6d28d9; }
-  button:disabled { opacity:0.5; cursor:not-allowed; }
-  .section { border-top:1px solid #2a2a2a; padding-top:20px; margin-top:24px; }
-  .section-title { font-size:12px; color:#888; text-transform:uppercase;
-                   letter-spacing:0.08em; margin-bottom:12px; }
-  #msg { margin-top:16px; padding:12px; border-radius:8px; display:none; font-size:13px; }
-  #msg.ok  { background:#064e3b; color:#a7f3d0; display:block; }
-  #msg.err { background:#7f1d1d; color:#fecaca; display:block; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Alf-E Setup</title>
+    <style>
+        :root {
+            --bg:           #0a0a0a;
+            --surface:      #111111;
+            --surface2:     #181818;
+            --surface3:     #222222;
+            --border:       #2a2a2a;
+            --accent:       #0066CC;
+            --accent-hover: #0055aa;
+            --text:         #e8e8e8;
+            --text-muted:   #888888;
+            --text-dim:     #444444;
+            --success:      #22c55e;
+            --warning:      #f59e0b;
+            --error:        #ef4444;
+            --radius:       14px;
+            --radius-sm:    8px;
+            --font:         -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body {
+            height: 100%;
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 15px;
+            line-height: 1.55;
+            -webkit-font-smoothing: antialiased;
+        }
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        /* ── Card ── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 32px 64px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+
+        /* ── Progress bar ── */
+        .progress-bar { height: 3px; background: var(--surface3); }
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.4s ease;
+        }
+
+        /* ── Header ── */
+        .card-header {
+            padding: 28px 28px 0;
+            text-align: center;
+        }
+        .logo {
+            font-size: 28px;
+            font-weight: 900;
+            letter-spacing: 6px;
+            color: var(--accent);
+            margin-bottom: 6px;
+        }
+        .step-label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        /* ── Step content ── */
+        .step { display: none; padding: 24px 28px 28px; }
+        .step.active { display: block; }
+        .step-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+        .step-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 22px;
+            line-height: 1.6;
+        }
+
+        /* ── Form fields ── */
+        .field { margin-bottom: 16px; }
+        .field label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+        .field input,
+        .field select {
+            width: 100%;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 14px;
+            padding: 10px 12px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .field input:focus, .field select:focus { border-color: var(--accent); }
+        .field input.error  { border-color: var(--error); }
+        .field input.valid  { border-color: var(--success); }
+        .field select option { background: var(--surface2); }
+        .field-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+        .field-hint a { color: var(--accent); text-decoration: none; }
+        .field-hint a:hover { text-decoration: underline; }
+
+        /* ── Toggle row ── */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            user-select: none;
+        }
+        .toggle-row:last-of-type { border-bottom: none; }
+        .toggle-label { flex: 1; }
+        .toggle-label strong { display: block; font-size: 14px; font-weight: 600; }
+        .toggle-label span { font-size: 12px; color: var(--text-muted); }
+        .toggle {
+            width: 38px; height: 22px;
+            background: var(--surface3);
+            border-radius: 11px;
+            border: none;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 3px; left: 3px;
+            width: 16px; height: 16px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            transition: left 0.2s, background 0.2s;
+        }
+        .toggle.on { background: var(--accent); }
+        .toggle.on::after { left: 19px; background: #fff; }
+
+        /* ── Info box ── */
+        .info-box {
+            background: rgba(0,102,204,0.1);
+            border: 1px solid rgba(0,102,204,0.25);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 18px;
+            line-height: 1.6;
+        }
+        .info-box strong { color: var(--text); }
+
+        /* ── Messages ── */
+        .msg {
+            border-radius: var(--radius-sm);
+            padding: 10px 14px;
+            font-size: 13px;
+            margin-bottom: 0;
+            display: none;
+        }
+        .msg.error   { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--error); display: block; }
+        .msg.success { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: var(--success); display: block; }
+        .msg.info    { background: rgba(0,102,204,0.08); border: 1px solid rgba(0,102,204,0.2); color: var(--text-muted); display: block; }
+
+        /* ── Buttons ── */
+        .btn-row { display: flex; gap: 10px; margin-top: 22px; }
+        .btn-back {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 500;
+            padding: 10px 18px;
+            cursor: pointer;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .btn-back:hover { border-color: var(--text-muted); color: var(--text); }
+        .btn-next {
+            flex: 1;
+            background: var(--accent);
+            border: none;
+            border-radius: var(--radius-sm);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 10px 18px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-next:hover    { background: var(--accent-hover); }
+        .btn-next:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ── Validate row ── */
+        .validate-row { display: flex; gap: 8px; }
+        .validate-row input { flex: 1; }
+        .btn-validate {
+            background: var(--surface3);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 600;
+            padding: 0 14px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.15s, color 0.15s;
+            flex-shrink: 0;
+        }
+        .btn-validate:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* ── Welcome ── */
+        .welcome-icon { font-size: 56px; text-align: center; margin: 8px 0 16px; }
+
+        /* ── Finish ── */
+        .spinner {
+            width: 48px; height: 48px;
+            border: 3px solid var(--surface3);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 20px auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .finish-msg { text-align: center; color: var(--text-muted); font-size: 14px; }
+        .finish-check { font-size: 56px; text-align: center; margin: 12px 0; display: none; }
+    </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>⚡ Welcome to Alf-E</h1>
-  <div class="sub">A few quick questions and your installer will finish the rest.</div>
-
-  <div class="card">
-    <div class="section-title">API token</div>
-    <label>API token
-      <span class="hint">From the <code>.env</code> file — ALFE_API_TOKEN. You only need this once.</span>
-      <input id="token" type="password" autocomplete="off" />
-    </label>
-
-    <div class="section">
-      <div class="section-title">About your household</div>
-      <label>Household name
-        <input id="household_name" placeholder="The Smith Residence" required />
-      </label>
-      <label>Your name (owner)
-        <input id="owner_name" placeholder="Alex Smith" required />
-      </label>
-      <label>Timezone
-        <select id="timezone">
-          <option>Australia/Brisbane</option>
-          <option>Australia/Sydney</option>
-          <option>Australia/Melbourne</option>
-          <option>Australia/Adelaide</option>
-          <option>Australia/Perth</option>
-          <option>Australia/Darwin</option>
-          <option>Australia/Hobart</option>
-          <option>Pacific/Auckland</option>
-          <option>UTC</option>
-        </select>
-      </label>
+<div class="card">
+    <div class="progress-bar">
+        <div class="progress-fill" id="progress" style="width:0%"></div>
     </div>
 
-    <div class="section">
-      <div class="section-title">Home Assistant</div>
-      <label>HA URL
-        <span class="hint">Usually the default works when HA runs on the same machine.</span>
-        <input id="ha_url" value="http://host.docker.internal:8123" />
-      </label>
+    <div class="card-header">
+        <div class="logo">ALF-E</div>
+        <div class="step-label" id="step-label">Getting started</div>
     </div>
 
-    <div class="section">
-      <div class="section-title">Optional connectors</div>
-      <div class="row">
-        <input type="checkbox" id="enable_bom" checked />
-        <label for="enable_bom">Australian BOM weather</label>
-      </div>
-      <label>City (for BOM weather)
-        <select id="bom_city">
-          <option>Brisbane</option><option>Sydney</option><option>Melbourne</option>
-          <option>Perth</option><option>Adelaide</option><option>Hobart</option>
-          <option>Darwin</option><option>Canberra</option>
-          <option>Gold Coast</option><option>Cairns</option>
-        </select>
-      </label>
-
-      <div class="row">
-        <input type="checkbox" id="enable_gmail" />
-        <label for="enable_gmail">Gmail (requires separate OAuth setup)</label>
-      </div>
-      <label>Gmail address
-        <input id="gmail_user" type="email" placeholder="you@gmail.com" />
-      </label>
+    <!-- Step 0: Welcome -->
+    <div class="step active" id="step-0">
+        <div class="welcome-icon">🤖</div>
+        <div class="step-title" style="text-align:center">Welcome to Alf-E</div>
+        <div class="step-desc" style="text-align:center">
+            Your personal AI agent for Home Assistant.<br>
+            This wizard takes about 2 minutes.
+        </div>
+        <div class="btn-row">
+            <button class="btn-next" onclick="next()">Let's go →</button>
+        </div>
     </div>
 
-    <button id="submit">Build my playbook</button>
-    <div id="msg"></div>
-  </div>
+    <!-- Step 1: About you -->
+    <div class="step" id="step-1">
+        <div class="step-title">About your home</div>
+        <div class="step-desc">Alf-E uses these to personalise how it talks to you.</div>
+
+        <div class="field">
+            <label>Your name</label>
+            <input id="owner_name" type="text" placeholder="e.g. John" autocomplete="given-name">
+        </div>
+        <div class="field">
+            <label>Household name</label>
+            <input id="household_name" type="text" placeholder="e.g. The Smith House" autocomplete="off">
+        </div>
+        <div class="field">
+            <label>Timezone</label>
+            <select id="timezone">
+                <optgroup label="Australia">
+                    <option value="Australia/Brisbane">Brisbane / QLD</option>
+                    <option value="Australia/Sydney">Sydney / NSW / ACT</option>
+                    <option value="Australia/Melbourne">Melbourne / VIC / TAS</option>
+                    <option value="Australia/Adelaide">Adelaide / SA</option>
+                    <option value="Australia/Perth">Perth / WA</option>
+                    <option value="Australia/Darwin">Darwin / NT</option>
+                </optgroup>
+                <optgroup label="New Zealand">
+                    <option value="Pacific/Auckland">Auckland / Wellington</option>
+                </optgroup>
+                <optgroup label="UK &amp; Europe">
+                    <option value="Europe/London">London</option>
+                    <option value="Europe/Paris">Paris / Berlin / Rome</option>
+                </optgroup>
+                <optgroup label="North America">
+                    <option value="America/New_York">New York (EST)</option>
+                    <option value="America/Chicago">Chicago (CST)</option>
+                    <option value="America/Denver">Denver (MST)</option>
+                    <option value="America/Los_Angeles">Los Angeles (PST)</option>
+                    <option value="America/Vancouver">Vancouver</option>
+                    <option value="America/Toronto">Toronto</option>
+                </optgroup>
+                <optgroup label="Asia">
+                    <option value="Asia/Singapore">Singapore</option>
+                    <option value="Asia/Tokyo">Tokyo</option>
+                    <option value="Asia/Dubai">Dubai</option>
+                </optgroup>
+                <optgroup label="Other">
+                    <option value="UTC">UTC</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <div id="msg-1" class="msg"></div>
+        <div class="btn-row">
+            <button class="btn-back" onclick="back()">Back</button>
+            <button class="btn-next" onclick="validateStep1()">Next →</button>
+        </div>
+    </div>
+
+    <!-- Step 2: API Key (skipped in add-on mode) -->
+    <div class="step" id="step-2">
+        <div class="step-title">Anthropic API key</div>
+        <div class="step-desc">
+            Alf-E uses Claude to think. Typical household usage is
+            <strong style="color:var(--text)">$1–5 USD / month</strong>.
+        </div>
+
+        <div class="field">
+            <label>API Key</label>
+            <div class="validate-row">
+                <input id="anthropic_api_key" type="password" placeholder="sk-ant-api03-…" autocomplete="off">
+                <button class="btn-validate" onclick="validateApiKey()">Test</button>
+            </div>
+            <div class="field-hint">
+                Get one free at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>
+            </div>
+        </div>
+
+        <div id="msg-2" class="msg"></div>
+        <div class="btn-row">
+            <button class="btn-back" onclick="back()">Back</button>
+            <button class="btn-next" onclick="validateStep2()">Next →</button>
+        </div>
+    </div>
+
+    <!-- Step 3: Home Assistant -->
+    <div class="step" id="step-3">
+        <div class="step-title">Home Assistant</div>
+        <div class="step-desc">How Alf-E connects to your home.</div>
+
+        <div id="ha-addon-box" class="info-box" style="display:none">
+            <strong>Running as HA add-on ✓</strong><br>
+            Alf-E is already connected to your Home Assistant — no URL or token needed.
+        </div>
+
+        <div id="ha-manual-fields">
+            <div class="field">
+                <label>HA URL</label>
+                <input id="ha_url" type="text" placeholder="http://homeassistant.local:8123" value="http://homeassistant.local:8123" autocomplete="off">
+            </div>
+            <div class="field">
+                <label>Long-lived access token</label>
+                <div class="validate-row">
+                    <input id="ha_token" type="password" placeholder="eyJhbGci…" autocomplete="off">
+                    <button class="btn-validate" onclick="validateHa()">Test</button>
+                </div>
+                <div class="field-hint">
+                    HA → Profile → Security → Long-lived access tokens → Create token
+                </div>
+            </div>
+        </div>
+
+        <div id="msg-3" class="msg"></div>
+        <div class="btn-row">
+            <button class="btn-back" onclick="back()">Back</button>
+            <button class="btn-next" onclick="validateStep3()">Next →</button>
+        </div>
+    </div>
+
+    <!-- Step 4: Extras -->
+    <div class="step" id="step-4">
+        <div class="step-title">Add-ons</div>
+        <div class="step-desc">Optional extras — you can enable these later by asking Alf-E.</div>
+
+        <div class="toggle-row" onclick="toggleExtra('weather')">
+            <div class="toggle-label">
+                <strong>☀️ Weather</strong>
+                <span>Daily forecasts and conditions</span>
+            </div>
+            <button class="toggle" id="toggle-weather"></button>
+        </div>
+        <div id="weather-fields" style="display:none; padding: 10px 0 2px">
+            <div class="field">
+                <label>Your city</label>
+                <input id="bom_city" type="text" placeholder="e.g. Brisbane" value="Brisbane">
+            </div>
+        </div>
+
+        <div class="toggle-row" onclick="toggleExtra('gmail')">
+            <div class="toggle-label">
+                <strong>✉️ Gmail</strong>
+                <span>Read and summarise your emails</span>
+            </div>
+            <button class="toggle" id="toggle-gmail"></button>
+        </div>
+        <div id="gmail-fields" style="display:none; padding: 10px 0 2px">
+            <div class="field">
+                <label>Gmail address</label>
+                <input id="gmail_user" type="email" placeholder="you@gmail.com" autocomplete="email">
+                <div class="field-hint">You'll authorise access after setup completes.</div>
+            </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:20px">
+            <button class="btn-back" onclick="back()">Back</button>
+            <button class="btn-next" onclick="next()">Finish setup →</button>
+        </div>
+    </div>
+
+    <!-- Step 5: Finishing -->
+    <div class="step" id="step-5">
+        <div class="step-title" style="text-align:center">Setting up Alf-E…</div>
+        <div class="spinner" id="setup-spinner"></div>
+        <div class="finish-check" id="finish-check">✅</div>
+        <div class="finish-msg" id="finish-msg">Writing your configuration — just a moment.</div>
+        <div id="msg-5" class="msg" style="margin-top:14px"></div>
+    </div>
 </div>
 
 <script>
-const $ = id => document.getElementById(id);
+'use strict';
 
-// Pre-fill token from localStorage if already logged in
-const existing = localStorage.getItem('alfe_token');
-if (existing) $('token').value = existing;
+const state = {
+    step:        0,
+    totalSteps:  5,
+    isAddon:     false,
+    apiKeyValid: false,
+    haValid:     false,
+    extras:      { weather: false, gmail: false },
+};
 
-$('submit').addEventListener('click', async () => {
-    const token = $('token').value.trim();
-    if (!token) { showMsg('err', 'API token is required.'); return; }
+const STEP_LABELS = [
+    'Getting started',
+    'Step 1 of 4 — Your home',
+    'Step 2 of 4 — API key',
+    'Step 3 of 4 — Home Assistant',
+    'Step 4 of 4 — Add-ons',
+    'Finishing up…',
+];
 
-    const payload = {
-        household_name: $('household_name').value.trim(),
-        owner_name:     $('owner_name').value.trim(),
-        timezone:       $('timezone').value,
-        ha_url:         $('ha_url').value.trim(),
-        enable_bom:     $('enable_bom').checked,
-        bom_city:       $('bom_city').value,
-        enable_gmail:   $('enable_gmail').checked,
-        gmail_user:     $('gmail_user').value.trim(),
-    };
+async function init() {
+    // Redirect if already set up
+    try {
+        const r = await fetch('/api/setup/status');
+        if (r.ok) {
+            const d = await r.json();
+            if (d.setup_complete) { window.location.href = '/'; return; }
+        }
+    } catch {}
 
-    if (!payload.household_name || !payload.owner_name) {
-        showMsg('err', 'Household name and your name are required.');
+    // Detect add-on mode and pre-set API key
+    try {
+        const r = await fetch('/api/setup/info');
+        if (r.ok) {
+            const d = await r.json();
+            state.isAddon     = d.is_addon || false;
+            state.apiKeyValid = d.anthropic_key_set || false;
+            if (state.isAddon) {
+                document.getElementById('ha-addon-box').style.display = 'block';
+                document.getElementById('ha-manual-fields').style.display = 'none';
+                state.haValid = true;
+            }
+        }
+    } catch {}
+
+    renderStep();
+}
+
+function renderStep() {
+    document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+    const stepEl = document.getElementById(`step-${state.step}`);
+    if (stepEl) stepEl.classList.add('active');
+    document.getElementById('step-label').textContent = STEP_LABELS[state.step] || '';
+
+    const effStep  = (state.isAddon && state.step >= 3) ? state.step - 1 : state.step;
+    const effTotal = state.isAddon ? 4 : 5;
+    const pct = state.step === 0 ? 4 : Math.round((effStep / effTotal) * 100);
+    document.getElementById('progress').style.width = pct + '%';
+    window.scrollTo(0, 0);
+}
+
+function next() {
+    // Skip API key step in add-on mode (key set by bashio)
+    if (state.step === 1 && state.isAddon && state.apiKeyValid) {
+        state.step = 3;
+    } else {
+        state.step = Math.min(state.step + 1, state.totalSteps);
+    }
+    renderStep();
+    if (state.step === state.totalSteps) runSetup();
+}
+
+function back() {
+    if (state.step === 3 && state.isAddon && state.apiKeyValid) {
+        state.step = 1;
+    } else {
+        state.step = Math.max(state.step - 1, 0);
+    }
+    renderStep();
+}
+
+function showMsg(n, text, type) {
+    const el = document.getElementById(`msg-${n}`);
+    if (!el) return;
+    el.textContent = text;
+    el.className = `msg ${type}`;
+}
+function clearMsg(n) {
+    const el = document.getElementById(`msg-${n}`);
+    if (el) { el.textContent = ''; el.className = 'msg'; }
+}
+
+function validateStep1() {
+    const name = document.getElementById('owner_name').value.trim();
+    const hh   = document.getElementById('household_name').value.trim();
+    if (!name) { showMsg(1, 'Please enter your name.', 'error'); return; }
+    if (!hh)   { showMsg(1, 'Please enter a household name.', 'error'); return; }
+    clearMsg(1);
+    next();
+}
+
+async function validateApiKey() {
+    const key = document.getElementById('anthropic_api_key').value.trim();
+    const inp = document.getElementById('anthropic_api_key');
+    clearMsg(2);
+    if (!key.startsWith('sk-ant-')) {
+        inp.classList.add('error');
+        showMsg(2, 'Key should start with sk-ant-', 'error');
         return;
     }
+    showMsg(2, 'Testing key…', 'info');
+    try {
+        const r = await fetch('/api/setup/validate-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ anthropic_api_key: key }),
+        });
+        const d = await r.json();
+        if (d.valid) {
+            inp.classList.remove('error'); inp.classList.add('valid');
+            state.apiKeyValid = true;
+            showMsg(2, '✓ Key is valid.', 'success');
+        } else {
+            inp.classList.add('error');
+            showMsg(2, d.error || 'Invalid key — check and try again.', 'error');
+        }
+    } catch {
+        showMsg(2, 'Could not reach server.', 'error');
+    }
+}
 
-    $('submit').disabled = true;
-    $('submit').textContent = 'Writing playbook…';
+function validateStep2() {
+    const key = document.getElementById('anthropic_api_key').value.trim();
+    if (!key) { showMsg(2, 'Please enter your Anthropic API key.', 'error'); return; }
+    clearMsg(2);
+    next();
+}
+
+async function validateHa() {
+    const url   = document.getElementById('ha_url').value.trim();
+    const token = document.getElementById('ha_token').value.trim();
+    clearMsg(3);
+    if (!url || !token) { showMsg(3, 'Please enter both URL and token.', 'error'); return; }
+    showMsg(3, 'Testing connection…', 'info');
+    try {
+        const r = await fetch('/api/setup/validate-ha', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ha_url: url, ha_token: token }),
+        });
+        const d = await r.json();
+        if (d.valid) {
+            state.haValid = true;
+            showMsg(3, `✓ Connected to ${d.ha_name || 'Home Assistant'}.`, 'success');
+        } else {
+            showMsg(3, d.error || 'Could not connect — check URL and token.', 'error');
+        }
+    } catch {
+        showMsg(3, 'Connection test failed.', 'error');
+    }
+}
+
+function validateStep3() {
+    if (state.isAddon) { next(); return; }
+    const url   = document.getElementById('ha_url').value.trim();
+    const token = document.getElementById('ha_token').value.trim();
+    if (!url)   { showMsg(3, 'Please enter your HA URL.', 'error'); return; }
+    if (!token) { showMsg(3, 'Please enter your HA access token.', 'error'); return; }
+    clearMsg(3);
+    next();
+}
+
+function toggleExtra(name) {
+    state.extras[name] = !state.extras[name];
+    document.getElementById(`toggle-${name}`).classList.toggle('on', state.extras[name]);
+    const fields = document.getElementById(`${name}-fields`);
+    if (fields) fields.style.display = state.extras[name] ? 'block' : 'none';
+}
+
+async function runSetup() {
+    const spinner = document.getElementById('setup-spinner');
+    const check   = document.getElementById('finish-check');
+    const msg     = document.getElementById('finish-msg');
+    spinner.style.display = 'block';
+    check.style.display   = 'none';
+    clearMsg(5);
+
+    const payload = {
+        owner_name:        (document.getElementById('owner_name')?.value     || '').trim(),
+        household_name:    (document.getElementById('household_name')?.value || '').trim(),
+        timezone:           document.getElementById('timezone')?.value        || 'Australia/Brisbane',
+        ha_url:            (document.getElementById('ha_url')?.value         || 'http://homeassistant:8123').trim(),
+        ha_token:          (document.getElementById('ha_token')?.value       || '').trim(),
+        anthropic_api_key: (document.getElementById('anthropic_api_key')?.value || '').trim(),
+        enable_bom:         state.extras.weather,
+        bom_city:          (document.getElementById('bom_city')?.value       || 'Brisbane').trim(),
+        enable_gmail:       state.extras.gmail,
+        gmail_user:        (document.getElementById('gmail_user')?.value     || '').trim(),
+    };
 
     try {
-        const res = await fetch('/api/setup', {
+        msg.textContent = 'Writing configuration…';
+        const r = await fetch('/api/setup', {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(payload),
         });
-        const data = await res.json();
-        if (res.ok && data.status === 'ok') {
-            // Trigger hot reload so the new playbook is live immediately
-            await fetch('/api/playbook/reload', {
-                method:  'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            localStorage.setItem('alfe_token', token);
-            showMsg('ok', '✓ Playbook written and loaded. Redirecting to Alf-E…');
-            setTimeout(() => { window.location.href = '/'; }, 1500);
-        } else {
-            showMsg('err', data.message || 'Setup failed.');
-            $('submit').disabled = false;
-            $('submit').textContent = 'Build my playbook';
-        }
-    } catch (e) {
-        showMsg('err', `Network error: ${e.message}`);
-        $('submit').disabled = false;
-        $('submit').textContent = 'Build my playbook';
-    }
-});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || d.message || 'Setup failed');
 
-function showMsg(kind, text) {
-    const m = $('msg');
-    m.className = kind;
-    m.textContent = text;
+        msg.textContent = 'Reloading Alf-E…';
+        try { await fetch('/api/playbook/reload', { method: 'POST' }); } catch {}
+
+        spinner.style.display = 'none';
+        check.style.display   = 'block';
+        msg.textContent       = 'All done! Taking you to Alf-E…';
+        setTimeout(() => { window.location.href = '/'; }, 1800);
+
+    } catch (err) {
+        spinner.style.display = 'none';
+        showMsg(5, `Setup failed: ${err.message}`, 'error');
+        const btnRow = document.createElement('div');
+        btnRow.className = 'btn-row';
+        btnRow.style.marginTop = '16px';
+        btnRow.innerHTML = '<button class="btn-back" style="flex:1" onclick="state.step=4;renderStep()">← Go back</button>';
+        document.getElementById('step-5').appendChild(btnRow);
+    }
 }
+
+document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>

@@ -734,6 +734,30 @@ html, body {
     margin-left: auto;
 }
 
+/* ── Update Banner ────────────────────────────────────────────────────────── */
+.update-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(245,158,11,0.12);
+    border-bottom: 1px solid rgba(245,158,11,0.25);
+    padding: 9px 16px;
+    font-size: 13px;
+    color: var(--warning);
+    flex-shrink: 0;
+}
+.update-banner button {
+    background: none;
+    border: none;
+    color: var(--warning);
+    cursor: pointer;
+    font-size: 14px;
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+.update-banner button:hover { opacity: 1; }
+
 /* ── Model Badge ──────────────────────────────────────────────────────────── */
 .model-badge {
     font-size: 10px;

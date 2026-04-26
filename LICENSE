@@ -1,0 +1,19 @@
+Copyright (c) 2026 Fraser Cole. All rights reserved.
+
+This software and its source code ("Alf-E") are the exclusive property of
+Fraser Cole. No part of this software may be copied, modified, distributed,
+sublicensed, sold, or used to create derivative works without the express
+written permission of Fraser Cole.
+
+Permitted use:
+- You may install and run Alf-E on your own hardware solely for personal,
+  non-commercial use, if you received it through an authorised channel
+  (e.g. the official HA add-on repository at github.com/majorfrazer/alf-e).
+
+Not permitted without written permission:
+- Copying, forking, or mirroring this repository
+- Redistributing or reselling this software or any part of it
+- Using any part of this codebase in another product or service
+- Removing or altering this copyright notice
+
+For licensing enquiries: fraser.nelec@gmail.com

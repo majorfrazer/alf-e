@@ -1031,6 +1031,31 @@ async function loadInsights() {
     } catch { /* server not ready yet */ }
 }
 
+// ── Update Check ──────────────────────────────────────────────────────────────
+
+async function checkForUpdate() {
+    try {
+        const res  = await apiFetch('api/update/check');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.update_available) return;
+
+        // Don't show twice
+        if (document.getElementById('update-banner')) return;
+
+        const banner = document.createElement('div');
+        banner.id = 'update-banner';
+        banner.className = 'update-banner';
+        const msg = data.is_addon
+            ? `Alf-E ${data.latest} is available — update in HA Add-ons.`
+            : `Alf-E ${data.latest} is available — Watchtower will apply it tonight, or restart your container.`;
+        banner.innerHTML = `
+            <span>⬆️ ${msg}</span>
+            <button onclick="this.parentElement.remove()" title="Dismiss">✕</button>`;
+        document.getElementById('main').prepend(banner);
+    } catch {}
+}
+
 // ── PWA ───────────────────────────────────────────────────────────────────────
 
 function registerSW() {
@@ -1099,6 +1124,10 @@ function init() {
     setInterval(loadInsights, 3 * 60 * 1000);
 
     registerSW();
+
+    // Check for updates on load, then every 6 hours
+    checkForUpdate();
+    setInterval(checkForUpdate, 6 * 60 * 60 * 1000);
 
     el('message-input').focus();
 }
