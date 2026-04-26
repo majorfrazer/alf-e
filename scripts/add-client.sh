@@ -32,11 +32,11 @@ if [[ $# -lt 4 ]]; then
     exit 1
 fi
 
-NAME="${1,,}"          # lowercase
+NAME="$(echo "$1" | tr '[:upper:]' '[:lower:]')"   # lowercase
 OWNER="$2"
 URL="$3"
 TOKEN="$4"
-ENV_VAR="HA_TOKEN_${NAME^^}"   # uppercase env var
+ENV_VAR="HA_TOKEN_$(echo "$1" | tr '[:lower:]' '[:upper:]')"   # uppercase env var
 
 # ── Validate ──────────────────────────────────────────────────────────────────
 

@@ -147,7 +147,7 @@ notes = "N95 local HA — default site, fastest when on home network."
 name = "Church"
 owner = "John"
 url = "https://xjgxwcdoec1hvlwxqmtwwm8cqxkkrv2v.ui.nabu.casa"
-token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyNWRmYjEzNTdhYjY0MjkyOGUwYWQzNTg3ODI5NTU4NSIsImlhdCI6MTc3NzEyNjQwNCwiZXhwIjoyMDkyNDg2NDA0fQ.It06vdWX-r18IcPtjjkoGwdajAPqqGwPmoGR-ZlcnRo"
+token_env = "HA_TOKEN_CHURCH"
 notes = "First install — building from scratch"
 
 [[ha_sites]]
