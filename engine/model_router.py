@@ -133,7 +133,12 @@ class ModelRouter:
         if tools:
             kwargs["tools"] = tools
         if config.thinking_budget_tokens:
-            kwargs["thinking"] = {"type": "enabled", "budget_tokens": config.thinking_budget_tokens}
+            # Claude 4+ uses adaptive thinking; Claude 3.x used enabled+budget_tokens
+            is_claude4 = any(f"claude-{n}-4" in config.model for n in ("opus", "sonnet", "haiku"))
+            if is_claude4:
+                kwargs["thinking"] = {"type": "adaptive"}
+            else:
+                kwargs["thinking"] = {"type": "enabled", "budget_tokens": config.thinking_budget_tokens}
 
         return client.messages.create(**kwargs)
 

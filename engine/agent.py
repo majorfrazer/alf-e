@@ -666,7 +666,11 @@ OPERATING RULES:
                 tools=self._get_tools(),
             )
             if config.thinking_budget_tokens:
-                stream_kwargs["thinking"] = {"type": "enabled", "budget_tokens": config.thinking_budget_tokens}
+                is_claude4 = any(f"claude-{n}-4" in config.model for n in ("opus", "sonnet", "haiku"))
+                stream_kwargs["thinking"] = (
+                    {"type": "adaptive"} if is_claude4
+                    else {"type": "enabled", "budget_tokens": config.thinking_budget_tokens}
+                )
 
             with client.messages.stream(**stream_kwargs) as stream:
                 for chunk in stream.text_stream:
